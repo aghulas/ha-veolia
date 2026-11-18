@@ -15,7 +15,17 @@ the same account. Tested with Home Assistant 2025.1 and 2026.10.
 
 ## Installation
 
-### HACS (custom repository)
+### Marketplace (Home Assistant 2026.11 and later)
+
+Home Assistant 2026.11 replaced HACS with the built-in **Marketplace**.
+
+1. Settings → **Marketplace**. On first use, read and accept the warning about community content,
+   then connect a GitHub account (⋮ → Reconfigure): adding a repository by link needs it.
+2. **Add from link** (top right) → `https://github.com/aghulas/ha-veolia`, type **Integration**.
+3. Open **Veolia Eau (pro)** in the list, install it, then restart Home Assistant (a Repairs issue
+   offers to do it). Updates then appear under Settings → Updates.
+
+### HACS (Home Assistant before 2026.11)
 
 1. HACS → ⋮ → **Custom repositories** → add `https://github.com/aghulas/ha-veolia`, type
    **Integration**.
