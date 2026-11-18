@@ -450,13 +450,14 @@ async def test_backend_failure_is_not_an_auth_failure(hass: HomeAssistant, http:
 async def test_no_fetch_before_the_configured_hour(
     hass: HomeAssistant, http: FakeHttp, freezer: FrozenDateTimeFactory
 ) -> None:
-    await setup(hass, entry(fetch_hour=10))
+    # Same day as the set-up (11:00): the clock does not cross the recorder's nightly tasks.
+    await setup(hass, entry(fetch_hour=15))
     http.calls.clear()
-    freezer.move_to(datetime(2026, 11, 19, 9, 59, 59, tzinfo=PARIS))
+    freezer.move_to(datetime(2026, 11, 18, 14, 59, 59, tzinfo=PARIS))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await settle(hass)
     assert http.calls == []
-    freezer.move_to(datetime(2026, 11, 19, 11, 0, 0, tzinfo=PARIS))
+    freezer.move_to(datetime(2026, 11, 18, 16, 0, 0, tzinfo=PARIS))
     async_fire_time_changed(hass)
     await wait_for(hass, lambda: any(c.path.endswith("/factures") for c in http.backend_calls))
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
