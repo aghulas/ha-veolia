@@ -28,6 +28,11 @@
 | **Closed-day baseline** (L) | computed from daily data on closed days | sensor + statistic |
 | **Possible leak** | baseline above threshold on N consecutive closed days (default 150 L, N = 2) | binary sensor (problem) + optional Repairs/notification |
 
+Decisions for v0.1 (2026-11-18): the subscription number is accepted in device names, entity ids and
+the statistic id (an exception to "no subscription number", agreed with the user, so that several
+subscriptions stay apart); the hourly statistic is dropped, since it needs the hourly step enabled,
+which is a write on the Veolia account.
+
 ## Behaviour
 
 - One fetch per day after publication with jitter; manual refresh button.
