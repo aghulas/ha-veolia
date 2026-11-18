@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import VeoliaApiError, VeoliaAuthRefused, VeoliaClient, VeoliaError
 from .const import (
+    CONF_AUTH_REFUSED,
     CONF_BACKFILL_MONTHS,
     CONF_CLOSED_WEEKDAYS,
     CONF_LEAK_DAYS,
@@ -89,6 +90,10 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
                 translation_key=ISSUE_AUTH_REFUSED,
                 translation_placeholders={"code": err.code},
             )
+            if self.config_entry.data.get(CONF_AUTH_REFUSED) != err.code:
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data={**self.config_entry.data, CONF_AUTH_REFUSED: err.code}
+                )
             raise ConfigEntryAuthFailed(str(err)) from err
         except VeoliaError as err:
             raise UpdateFailed(str(err)) from err
@@ -111,20 +116,29 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
         since = max(since, info.start)
         start = info.start.isoformat()
 
-        # Newest month first: on a first run Veolia refuses (HTTP 4xx) months it has no daily data
-        # for — the backfill then simply stops there. A refusal of a recent month is a real error.
+        # Newest month first. Veolia answers HTTP 4xx for a month it has no daily data for:
+        # - an old month on a first run: the backfill simply stops there;
+        # - a month of the refresh window (e.g. the current month on the 1st, before anything is
+        #   published): it counts as empty, unless every month of the window is refused.
         rows: list[dict[str, Any]] = []
         recent = (today - timedelta(days=REFRESH_WINDOW_DAYS)).replace(day=1)
+        answered, refusal = False, None
         for year, month in reversed(months_between(since, today)):
             try:
                 rows += await self.client.daily(sub, info.pds, start, year, month)
+                answered = True
             except VeoliaApiError as err:
-                if err.status not in NO_DATA_STATUSES or date(year, month, 1) >= recent:
+                if err.status not in NO_DATA_STATUSES:
                     raise
+                refusal = err
+                if date(year, month, 1) >= recent:
+                    continue
                 _LOGGER.debug(
                     "Daily history stops before %04d-%02d (HTTP %s)", year, month, err.status
                 )
                 break
+        if not answered and refusal is not None:
+            raise refusal
         readings = [r for r in parse_daily(rows) if since <= r.day <= today]
 
         older: list[DailyReading] = []
@@ -142,7 +156,7 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
                     _LOGGER.debug("Monthly history stops before %04d (HTTP %s)", year, err.status)
                     break
             older = monthly_as_readings(parse_monthly(monthly), since, first_daily)
-        await async_import_daily(self.hass, sub, f"Veolia {sub}", older + readings)
+        await async_import_daily(self.hass, sub, f"Veolia {sub}", older, readings)
 
         closed = {
             WEEKDAYS.index(d) for d in self._option(CONF_CLOSED_WEEKDAYS, DEFAULT_CLOSED_WEEKDAYS)

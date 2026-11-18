@@ -26,7 +26,7 @@ from custom_components.veolia_eau.models import DailyReading
 from custom_components.veolia_eau.statistics import build_rows, local_midnight, statistic_id
 
 from .conftest import PASSWORD, SUB, USER, Backend
-from .fakes import FakeHttp, FakeResponse, auth_error
+from .fakes import FakeHttp, FakeResponse, auth_error, auth_ok
 
 PARIS = ZoneInfo("Europe/Paris")
 NOW = datetime(2026, 11, 18, 11, 0, tzinfo=PARIS)
@@ -91,16 +91,41 @@ def test_build_rows_uses_local_midnight_of_the_real_day() -> None:
     readings = [
         DailyReading(date(2026, 10, 25), 100.0, None, None),  # DST change day
         DailyReading(date(2026, 10, 24), 50.0, None, None),
-        DailyReading(date(2026, 10, 26), None, None, None),
+        DailyReading(date(2026, 10, 26), None, None, None),  # no volume: 0, sum carried over
         DailyReading(date(2026, 10, 27), 10.0, None, None),
+        DailyReading(date(2026, 10, 28), None, None, None),  # after the last volume: no row
     ]
-    rows = build_rows(readings, 1000.0, PARIS)
+    monthly = [DailyReading(date(2026, 9, 1), 3000.0, None, None)]
+    rows = build_rows(monthly, readings, 1000.0, PARIS)
     assert [(r["start"].isoformat(), r["state"], r["sum"]) for r in rows] == [
-        ("2026-10-23T22:00:00+00:00", 50.0, 1050.0),
-        ("2026-10-24T22:00:00+00:00", 100.0, 1150.0),
-        ("2026-10-26T23:00:00+00:00", 10.0, 1160.0),
+        ("2026-08-31T22:00:00+00:00", 3000.0, 4000.0),
+        ("2026-10-23T22:00:00+00:00", 50.0, 4050.0),
+        ("2026-10-24T22:00:00+00:00", 100.0, 4150.0),
+        ("2026-10-25T23:00:00+00:00", 0.0, 4150.0),
+        ("2026-10-26T23:00:00+00:00", 10.0, 4160.0),
     ]
     assert local_midnight(date(2026, 7, 1), PARIS).isoformat() == "2026-06-30T22:00:00+00:00"
+    assert build_rows([], [], 5.0, PARIS) == []
+
+
+async def test_a_day_veolia_withdraws_does_not_break_the_sum(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    config = entry()
+    await setup(hass, config)
+    before = {r["start"]: r for r in await stats(hass)}
+    gone = date(2026, 11, 10)
+    normal = backend.litres
+    backend.litres = lambda day: None if day == gone else normal(day)
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    after = {r["start"]: r for r in await stats(hass)}
+    at = local_midnight(gone, PARIS).timestamp()
+    assert after[at]["state"] == 0.0
+    assert after[at]["sum"] == before[at]["sum"] - 5000.0
+    rows = list(after.values())
+    assert all(b["sum"] - a["sum"] == b["state"] for a, b in zip(rows, rows[1:], strict=False))
+    assert rows[-1]["sum"] == list(before.values())[-1]["sum"] - 5000.0
 
 
 async def test_setup_backfills_since_the_subscription_start(
@@ -208,7 +233,7 @@ async def test_backfill_stops_where_veolia_refuses_older_months(
     assert rows[18]["start"] == local_midnight(date(2026, 7, 1), PARIS).timestamp()
 
 
-async def test_refusal_of_a_recent_month_is_an_error(
+async def test_every_recent_month_refused_is_an_error(
     hass: HomeAssistant, http: FakeHttp, backend: Backend
 ) -> None:
     backend.daily_refused_before = "2026-12"
@@ -217,7 +242,30 @@ async def test_refusal_of_a_recent_month_is_an_error(
     reason = str(config.runtime_data.last_exception)
     assert config.runtime_data.last_update_success is False
     assert SUB not in reason and "<id>" in reason
-    assert len([c for c in http.backend_calls if "journalieres" in c.path]) == 1
+
+
+async def test_current_month_without_data_yet_is_not_an_error(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend, freezer: FrozenDateTimeFactory
+) -> None:
+    """On the 1st, nothing is published for the new month: Veolia may refuse that month."""
+    config = entry()
+    await setup(hass, config)
+    before = await stats(hass)
+    backend.last_day = date(2026, 11, 30)
+    refused = {"12"}
+    daily = backend.__call__
+
+    def december_refused(call):
+        if "journalieres" in call.path and call.kwargs["params"]["mois"] in refused:
+            return FakeResponse(422, {"message": "synthetic"})
+        return daily(call)
+
+    http.backend = december_refused
+    freezer.move_to(datetime(2026, 12, 1, 9, 0, tzinfo=PARIS))
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    assert config.runtime_data.last_update_success is True
+    assert len(await stats(hass)) == len(before) + 13  # 18 … 30 November
 
 
 async def test_monthly_volumes_are_not_fetched_again_after_the_first_run(
@@ -237,9 +285,11 @@ async def test_monthly_volumes_are_not_fetched_again_after_the_first_run(
 async def test_refresh_button(hass: HomeAssistant, http: FakeHttp) -> None:
     await setup(hass, entry())
     http.calls.clear()
-    await hass.services.async_call(
-        "button", "press", {"entity_id": f"button.veolia_{SUB}_refresh"}, blocking=True
-    )
+    for _ in range(3):  # several presses in a row are one fetch
+        await hass.services.async_call(
+            "button", "press", {"entity_id": f"button.veolia_{SUB}_refresh"}, blocking=True
+        )
+    await wait_for(hass, lambda: any(c.path.endswith("/factures") for c in http.backend_calls))
     await settle(hass)
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
     assert {c.method for c in http.backend_calls} == {"GET"}
@@ -331,6 +381,32 @@ async def test_refused_password_at_startup(
     async_fire_time_changed(hass)
     await settle(hass)
     assert len(http.cognito_calls) == 1 and http.backend_calls == []
+
+
+async def test_refusal_survives_a_restart_until_reauth(hass: HomeAssistant, http: FakeHttp) -> None:
+    http.cognito = lambda c: auth_error("NotAuthorizedException")
+    config = entry()
+    await setup(hass, config)
+    assert config.data["auth_refused"] == "NotAuthorizedException"
+    assert len(http.cognito_calls) == 1
+
+    for _ in range(3):  # restarts, reloads, option changes: the password is not sent again
+        await hass.config_entries.async_reload(config.entry_id)
+        await settle(hass)
+    hass.config_entries.async_update_entry(config, options={"fetch_hour": 7})
+    await settle(hass)
+    assert len(http.cognito_calls) == 1 and http.backend_calls == []
+    assert config.runtime_data.client.session.refused == "NotAuthorizedException"
+
+    http.cognito = lambda c: auth_ok("a", "refresh-new")
+    flow = next(
+        f for f in hass.config_entries.flow.async_progress() if f["context"]["source"] == "reauth"
+    )
+    done = await hass.config_entries.flow.async_configure(flow["flow_id"], {"password": "new"})
+    await settle(hass)
+    assert done["reason"] == "reauth_successful"
+    assert config.data["auth_refused"] is None
+    assert config.runtime_data.last_update_success is True
 
 
 async def test_backend_down_at_startup_is_retried_once_then_waits(

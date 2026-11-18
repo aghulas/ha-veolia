@@ -9,6 +9,7 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SENSOR]
 
 CONF_SUBSCRIPTIONS = "subscriptions"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_AUTH_REFUSED = "auth_refused"  # Cognito code of a refusal, kept across restarts
 
 # Options
 CONF_FETCH_HOUR = "fetch_hour"

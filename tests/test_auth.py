@@ -234,3 +234,31 @@ async def test_wrong_code_keeps_the_session_locked(code: str) -> None:
     with pytest.raises(VeoliaAuthRefused):
         await session.token()
     assert len(http.cognito_calls) == 2
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        auth_error("InvalidParameterException"),
+        auth_error("UserLambdaValidationException"),
+        auth_error("LimitExceededException"),
+        FakeResponse(403, {"message": "Forbidden"}),
+    ],
+)
+async def test_any_other_4xx_on_the_password_login_locks_too(response: FakeResponse) -> None:
+    http = FakeHttp(cognito=lambda c: response)
+    session = make(http)
+    for _ in range(3):
+        with pytest.raises(VeoliaAuthRefused):
+            await session.token()
+    assert len(http.cognito_calls) == 1 and session.refused
+
+
+async def test_a_remembered_refusal_sends_nothing() -> None:
+    http = FakeHttp(cognito=lambda c: auth_ok())
+    session = make(http, tokens=Tokens("", 0.0, "refresh-0"), refused="NotAuthorizedException")
+    with pytest.raises(VeoliaAuthRefused):
+        await session.token()
+    assert http.calls == []
+    session.set_password("another-synthetic-password")
+    assert await session.token() == "access-1"

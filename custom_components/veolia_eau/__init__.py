@@ -14,6 +14,7 @@ from homeassistant.helpers.event import async_call_later, async_track_time_chang
 
 from .api import CognitoSession, Tokens, VeoliaClient
 from .const import (
+    CONF_AUTH_REFUSED,
     CONF_FETCH_HOUR,
     CONF_REFRESH_TOKEN,
     DEFAULT_FETCH_HOUR,
@@ -43,6 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: VeoliaConfigEntry) -> bo
         entry.data[CONF_PASSWORD],
         tokens=Tokens("", 0.0, stored) if stored else None,
         on_tokens=save_refresh_token,
+        # A password Veolia refused is not sent again after a restart or a reload.
+        refused=entry.data.get(CONF_AUTH_REFUSED),
     )
     coordinator = VeoliaCoordinator(hass, entry, VeoliaClient(http, session))
     entry.runtime_data = coordinator
