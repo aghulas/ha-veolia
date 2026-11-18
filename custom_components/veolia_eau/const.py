@@ -27,3 +27,6 @@ DEFAULT_CLOSED_WEEKDAYS = ["sun"]
 REFRESH_WINDOW_DAYS = 35
 
 ISSUE_AUTH_REFUSED = "auth_refused"
+
+# After a failed first fetch (other than a refused login): one retry, this long after start-up.
+STARTUP_RETRY_S = 30 * 60

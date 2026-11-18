@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -201,8 +201,9 @@ async def test_refusal_of_a_recent_month_is_an_error(
     backend.daily_refused_before = "2026-12"
     config = entry()
     await setup(hass, config)
-    assert config.state is ConfigEntryState.SETUP_RETRY
-    assert SUB not in (config.reason or "") and "<id>" in (config.reason or "")
+    reason = str(config.runtime_data.last_exception)
+    assert config.runtime_data.last_update_success is False
+    assert SUB not in reason and "<id>" in reason
     assert len([c for c in http.backend_calls if "journalieres" in c.path]) == 1
 
 
@@ -302,12 +303,49 @@ async def test_refused_password_stops_everything(
     assert len(http.cognito_calls) == 2 and http.backend_calls == []
 
 
-async def test_refused_password_at_startup(hass: HomeAssistant, http: FakeHttp) -> None:
+async def test_refused_password_at_startup(
+    hass: HomeAssistant, http: FakeHttp, freezer: FrozenDateTimeFactory
+) -> None:
     http.cognito = lambda c: auth_error("NotAuthorizedException")
     config = entry()
     await setup(hass, config)
-    assert config.state is ConfigEntryState.SETUP_ERROR
-    assert len(http.cognito_calls) == 1
+    assert config.state is ConfigEntryState.LOADED  # no set-up retry loop
+    assert any(
+        f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress()
+    )
+    assert hass.states.get(f"sensor.veolia_{SUB}_amount_due").state == "unavailable"
+    freezer.move_to(NOW + timedelta(hours=2))  # no delayed retry either after a refusal
+    async_fire_time_changed(hass)
+    await settle(hass)
+    assert len(http.cognito_calls) == 1 and http.backend_calls == []
+
+
+async def test_backend_down_at_startup_is_retried_once_then_waits(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend, freezer: FrozenDateTimeFactory
+) -> None:
+    http.backend = lambda c: FakeResponse(503)
+    config = entry()
+    await setup(hass, config)
+    assert config.state is ConfigEntryState.LOADED
+    assert config.runtime_data.last_update_success is False
+    assert len(http.backend_calls) == 1
+    for minutes in (5, 20, 29):  # Home Assistant does not retry on its own
+        freezer.move_to(NOW + timedelta(minutes=minutes))
+        async_fire_time_changed(hass)
+        await settle(hass)
+    assert len(http.backend_calls) == 1
+
+    http.backend = backend
+    freezer.move_to(NOW + timedelta(minutes=31))
+    async_fire_time_changed(hass)
+    await settle(hass)
+    assert config.runtime_data.last_update_success is True
+    assert hass.states.get(f"sensor.veolia_{SUB}_amount_due").state == "42.5"
+    count = len(http.backend_calls)
+    freezer.move_to(NOW + timedelta(minutes=90))
+    async_fire_time_changed(hass)
+    await settle(hass)
+    assert len(http.backend_calls) == count
 
 
 async def test_backend_failure_is_not_an_auth_failure(hass: HomeAssistant, http: FakeHttp) -> None:

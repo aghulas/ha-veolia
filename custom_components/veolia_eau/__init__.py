@@ -8,11 +8,18 @@ from datetime import datetime
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.event import async_call_later, async_track_time_change
 
 from .api import CognitoSession, Tokens, VeoliaClient
-from .const import CONF_FETCH_HOUR, CONF_REFRESH_TOKEN, DEFAULT_FETCH_HOUR, PLATFORMS
+from .const import (
+    CONF_FETCH_HOUR,
+    CONF_REFRESH_TOKEN,
+    DEFAULT_FETCH_HOUR,
+    PLATFORMS,
+    STARTUP_RETRY_S,
+)
 from .coordinator import VeoliaCoordinator
 
 type VeoliaConfigEntry = ConfigEntry[VeoliaCoordinator]
@@ -38,8 +45,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: VeoliaConfigEntry) -> bo
         on_tokens=save_refresh_token,
     )
     coordinator = VeoliaCoordinator(hass, entry, VeoliaClient(http, session))
-    await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    # A failed first fetch must not make Home Assistant retry the set-up in a loop (it would poll
+    # Veolia every minute or so): the entry loads with unavailable entities instead. A refused
+    # login has already started a reauth flow; anything else gets ONE delayed retry, then waits
+    # for the daily fetch.
+    await coordinator.async_refresh()
+    if not coordinator.last_update_success and not isinstance(
+        coordinator.last_exception, ConfigEntryAuthFailed
+    ):
+
+        async def retry_once(now: datetime) -> None:
+            if not coordinator.last_update_success:
+                await coordinator.async_refresh()
+
+        entry.async_on_unload(async_call_later(hass, STARTUP_RETRY_S, retry_once))
 
     async def daily_refresh(now: datetime) -> None:
         await coordinator.async_refresh()
