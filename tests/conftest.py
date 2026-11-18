@@ -73,10 +73,11 @@ class Backend:
             day, rows = date(year, month, 1), []
             while day.month == month and day <= self.last_day:
                 if day.isoformat() >= (self.daily_start or self.start):
+                    volume = self.litres(day)
                     rows.append(
                         {
                             "date_releve": day.isoformat(),
-                            "consommation": {"litre": self.litres(day)},
+                            "consommation": {"litre": volume} if volume is not None else None,
                             "index": {"m3": 1000},
                             "fiabilite_index": "M",
                         }

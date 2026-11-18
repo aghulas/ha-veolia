@@ -30,6 +30,7 @@ from .api import (
     VeoliaError,
 )
 from .const import (
+    CONF_AUTH_REFUSED,
     CONF_BACKFILL_MONTHS,
     CONF_CLOSED_WEEKDAYS,
     CONF_FETCH_HOUR,
@@ -105,7 +106,11 @@ class VeoliaConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(
                 self._get_reauth_entry(),
-                data_updates={CONF_PASSWORD: self._password, CONF_REFRESH_TOKEN: refresh},
+                data_updates={
+                    CONF_PASSWORD: self._password,
+                    CONF_REFRESH_TOKEN: refresh,
+                    CONF_AUTH_REFUSED: None,
+                },
             )
         client = VeoliaClient(async_get_clientsession(self.hass), self._session)
         try:
@@ -157,6 +162,8 @@ class VeoliaConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._challenge = challenge
             except VeoliaError as err:
                 errors["base"] = _error(err)
+                if errors["base"] != "invalid_code":  # e.g. the verification expired: start over
+                    return self._credentials_form(errors)
             else:
                 result = await self._logged_in()
                 if "type" in result:

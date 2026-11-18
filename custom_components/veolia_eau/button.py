@@ -33,4 +33,5 @@ class VeoliaRefreshButton(VeoliaEntity, ButtonEntity):
         return True  # usable precisely when the last refresh failed
 
     async def async_press(self) -> None:
-        await self.coordinator.async_refresh()
+        # Debounced by the coordinator: several presses in a row are one fetch.
+        await self.coordinator.async_request_refresh()

@@ -40,18 +40,32 @@ def local_midnight(day: date, tz: tzinfo) -> datetime:
 
 
 def build_rows(
-    readings: Iterable[DailyReading], base_sum: float, tz: tzinfo
+    monthly: Iterable[DailyReading], daily: Iterable[DailyReading], base_sum: float, tz: tzinfo
 ) -> list[dict[str, Any]]:
-    """Statistic rows of the days that have a volume, with the running sum continued from base."""
+    """Statistic rows with the running sum continued from `base_sum`.
+
+    `monthly` (first run only) gives one row per month; `daily` one row per day, and every day
+    between its first and last volume gets a row: a day without a volume is written as 0 with the
+    sum carried over. Otherwise a day Veolia withdrew after we stored it would keep its old row
+    and make the next day's difference wrong (even negative).
+    """
     rows: list[dict[str, Any]] = []
     total = base_sum
-    for reading in sorted(readings, key=lambda r: r.day):
-        if reading.litres is None:
-            continue
-        total += reading.litres
-        rows.append(
-            {"start": local_midnight(reading.day, tz), "state": reading.litres, "sum": total}
-        )
+
+    def add(day: date, litres: float) -> None:
+        nonlocal total
+        total += litres
+        rows.append({"start": local_midnight(day, tz), "state": litres, "sum": total})
+
+    for reading in sorted(monthly, key=lambda r: r.day):
+        if reading.litres is not None:
+            add(reading.day, reading.litres)
+    volumes = {r.day: r.litres for r in daily if r.litres is not None}
+    if volumes:
+        day, last = min(volumes), max(volumes)
+        while day <= last:
+            add(day, volumes.get(day, 0.0))
+            day += timedelta(days=1)
     return rows
 
 
@@ -73,21 +87,25 @@ def _metadata(subscription: str, name: str) -> dict[str, Any]:
 
 
 async def async_import_daily(
-    hass: HomeAssistant, subscription: str, name: str, readings: list[DailyReading]
+    hass: HomeAssistant,
+    subscription: str,
+    name: str,
+    monthly: list[DailyReading],
+    daily: list[DailyReading],
 ) -> int:
     """Import (or re-import) the given days. Returns the number of rows written."""
-    days = [r for r in readings if r.litres is not None]
+    tz = dt_util.get_default_time_zone()
+    days = [r.day for r in (*monthly, *daily) if r.litres is not None]
     if not days:
         return 0
-    tz = dt_util.get_default_time_zone()
-    first = local_midnight(min(r.day for r in days), tz)
+    first = local_midnight(min(days), tz)
     stat_id = statistic_id(subscription)
     before = await get_instance(hass).async_add_executor_job(
         statistics_during_period, hass, first - LOOKBACK, first, {stat_id}, "hour", None, {"sum"}
     )
     previous = before.get(stat_id) or []
     base = float(previous[-1].get("sum") or 0.0) if previous else 0.0
-    rows = build_rows(days, base, tz)
+    rows = build_rows(monthly, daily, base, tz)
     async_add_external_statistics(hass, _metadata(subscription, name), rows)  # type: ignore[arg-type]
     return len(rows)
 

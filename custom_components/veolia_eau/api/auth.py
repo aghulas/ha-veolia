@@ -38,6 +38,9 @@ REFUSALS = frozenset(
 )
 
 
+# Rate limiting says nothing about the credentials: transient, does not lock the session.
+THROTTLED = frozenset({"TooManyRequestsException"})
+
 # Name of the field that carries the code in RespondToAuthChallenge, per challenge type.
 CHALLENGE_ANSWER_KEYS = {
     "EMAIL_OTP": "EMAIL_OTP_CODE",
@@ -71,6 +74,7 @@ class CognitoSession:
         tokens: Tokens | None = None,
         on_tokens: Callable[[Tokens], None] | None = None,
         clock: Callable[[], float] = time.time,
+        refused: str | None = None,
     ) -> None:
         self._http = http
         self._username = username
@@ -78,7 +82,7 @@ class CognitoSession:
         self._tokens = tokens
         self._on_tokens = on_tokens
         self._clock = clock
-        self._refused: str | None = None
+        self._refused = refused  # a refusal remembered from before a restart keeps the lock
         self._lock = asyncio.Lock()
 
     @property
@@ -120,6 +124,14 @@ class CognitoSession:
         except VeoliaAuthRefused as err:
             self._refused = err.code
             self._tokens = None
+            raise
+        except VeoliaApiError as err:
+            # Any other 4xx answer to a password login (unknown error type, blocked request…)
+            # is treated as a refusal too: when in doubt, the password is not sent again.
+            if 400 <= err.status < 500 and err.code not in THROTTLED:
+                self._refused = err.code or f"HTTP {err.status}"
+                self._tokens = None
+                raise VeoliaAuthRefused(self._refused) from None
             raise
         return self._accept(result, None)
 

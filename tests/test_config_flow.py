@@ -105,7 +105,7 @@ async def test_reauth(hass: HomeAssistant, http: FakeHttp) -> None:
     done = await hass.config_entries.flow.async_configure(result["flow_id"], {"password": "new"})
     assert done["type"] is FlowResultType.ABORT and done["reason"] == "reauth_successful"
     assert entry.data["password"] == "new" and entry.data["refresh_token"] == "refresh-new"
-    assert entry.data["subscriptions"] == [SUB]
+    assert entry.data["subscriptions"] == [SUB] and entry.data["auth_refused"] is None
     assert len(http.cognito_calls) == 2
 
 
@@ -183,3 +183,13 @@ async def test_reauth_with_verification_code(hass: HomeAssistant, http: FakeHttp
     done = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "123456"})
     assert done["type"] is FlowResultType.ABORT and done["reason"] == "reauth_successful"
     assert entry.data["password"] == "new" and entry.data["refresh_token"] == "refresh-new"
+
+
+async def test_expired_verification_goes_back_to_the_login_form(
+    hass: HomeAssistant, http: FakeHttp
+) -> None:
+    answers = [auth_challenge(), auth_error("NotAuthorizedException")]
+    http.cognito = lambda c: answers.pop(0)
+    result = await start(hass)
+    back = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "123456"})
+    assert back["step_id"] == "user" and back["errors"] == {"base": "invalid_auth"}
