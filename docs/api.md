@@ -12,6 +12,12 @@ Unofficial, undocumented, may change. Source of truth: `~/dev/veolia-mcp/veolia_
   FriendlyCaptcha key exists in the bundle for other forms). HA must implement SRP (e.g. a maintained
   library) — **not yet tested programmatically**: the MCP connector captures the tokens from a real
   browser login. Validate once, supervised, and document the exact flow and error codes here.
+- The upstream integration (`veolia_api` 2.1.1) logs in with **`USER_PASSWORD_AUTH`**
+  (`AuthParameters.USERNAME` / `PASSWORD`) on the same client id, and maps `NotAuthorizedException` /
+  `UserNotFoundException` to invalid credentials. If confirmed for our account, SRP is unnecessary.
+  It lists subscriptions with `GET /espace-client?type-front=WEB_ORDINATEUR`
+  (`contacts[].tiers[].abonnements[]`: `id_abonnement`, `numero_compteur`) — residential accounts;
+  behaviour for a business account unknown. See `docs/decision.md`.
 - Access token ≈ 1 h; renew with `REFRESH_TOKEN_AUTH` (`AuthParameters.REFRESH_TOKEN`, plus `DEVICE_KEY`
   if device tracking ever appears). Observed once: refresh refused ≈ 40 h after login → full re-login.
 - The web app stores tokens encrypted in localStorage (react-secure-storage) — irrelevant for HA.
