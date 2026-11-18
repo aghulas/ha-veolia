@@ -1,0 +1,13 @@
+{
+  "domain": "veolia_eau",
+  "name": "Veolia Eau (pro)",
+  "codeowners": ["@aghulas"],
+  "config_flow": true,
+  "dependencies": ["recorder"],
+  "documentation": "https://github.com/aghulas/ha-veolia",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/aghulas/ha-veolia/issues",
+  "requirements": [],
+  "version": "0.0.1"
+}
