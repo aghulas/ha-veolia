@@ -1,7 +1,12 @@
 # Veolia Eau (pro) — Home Assistant integration
 
-**Status: scaffolding — first step is deciding between contributing to the existing community
-integration (Jezza34000/homeassistant_veolia) and a new one.** Unofficial, not affiliated with Veolia.
+**Status: early — login (with Veolia's e-mailed verification code), subscription choice, daily
+statistics, leak detection and invoice sensors. First run in a real Home Assistant (2026.11) on a
+business account on 2026-11-18: two years of daily volumes imported, identical day for day to an
+independent reading of the same account.** Unofficial, not affiliated with Veolia. This is a new
+integration (domain `veolia_eau`), separate from the community integration
+[Jezza34000/homeassistant_veolia](https://github.com/Jezza34000/homeassistant_veolia) (MIT), whose
+work on the eau.veolia.fr API it builds on; see `docs/decision.md` for why.
 
 Goal: daily water consumption of Veolia smart meters (eau.veolia.fr) in Home Assistant's statistics and
 Energy dashboard, for business accounts too, with leak detection based on the consumption of days when

@@ -16,3 +16,4 @@ captures/
 samples/real/
 *.zip
 *.aes
+.venv*/

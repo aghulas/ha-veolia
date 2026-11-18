@@ -8,10 +8,23 @@ Unofficial, undocumented, may change. Source of truth: `~/dev/veolia-mcp/veolia_
   `veolia_mcp/auth.py`; it is not a secret, but keep it in one constant).
 - Endpoint `https://cognito-idp.eu-west-3.amazonaws.com/`, header
   `X-Amz-Target: AWSCognitoIdentityProviderService.InitiateAuth`, `Content-Type: application/x-amz-json-1.1`.
-- Web app login = Amplify default **USER_SRP_AUTH** (no captcha at login as of Oct. 2026; a
-  FriendlyCaptcha key exists in the bundle for other forms). HA must implement SRP (e.g. a maintained
-  library) — **not yet tested programmatically**: the MCP connector captures the tokens from a real
-  browser login. Validate once, supervised, and document the exact flow and error codes here.
+- **Login validated on a business account (2026-11-18, `scripts/probe_login.py`, one attempt):**
+  `InitiateAuth` with `AuthFlow: USER_PASSWORD_AUTH`, `AuthParameters.USERNAME` / `PASSWORD` is
+  accepted and returns `AccessToken` (`ExpiresIn` 3600) and a `RefreshToken`. No SRP, no captcha, no
+  challenge. (The web app itself uses Amplify's `USER_SRP_AUTH`; the upstream integration uses
+  `USER_PASSWORD_AUTH` too.)
+- Refusals are HTTP 400 with `__type`: `NotAuthorizedException`, `UserNotFoundException`,
+  `UserNotConfirmedException`, `PasswordResetRequiredException` — not observed by us, handled as
+  "never retry"; a `ChallengeName` in a 200 answer (MFA…) is handled the same way.
+- **Verification code (answering it is not yet tested end to end).** On 2026-11-18 the same
+  credentials that the probe had logged in with from a Mac were refused twice from Home Assistant
+  on another network, and the account owner received one e-mail with a code per attempt. Users of
+  the upstream integration report the same: a "suspicious activity" notice with a 6-digit code
+  valid 15 minutes (upstream issues #96, #142). We therefore
+  treat a `ChallengeName` answer as a challenge a person can answer with
+  `RespondToAuthChallenge` (`ChallengeResponses.USERNAME` + the code field of that challenge
+  type). To confirm on the next attempt: the challenge name, logged by the config flow, and
+  whether a later password login from the same place asks again.
 - Access token ≈ 1 h; renew with `REFRESH_TOKEN_AUTH` (`AuthParameters.REFRESH_TOKEN`, plus `DEVICE_KEY`
   if device tracking ever appears). Observed once: refresh refused ≈ 40 h after login → full re-login.
 - The web app stores tokens encrypted in localStorage (react-secure-storage) — irrelevant for HA.
@@ -22,7 +35,8 @@ Base: `https://prd-ael-sirius-backend.istefr.fr`
 
 | Path | Params | Use |
 |---|---|---|
-| `/espace-client/pro` | — | **opens the business habilitation** server-side; without it subscription routes answer `403 {"message":"ERR_HABILATION_MANQUANTE"}` (time-limited) |
+| `/espace-client` | `type-front=WEB_ORDINATEUR` | account description, **answers for business accounts too**: `contacts[].tiers[].abonnements[]` with `id_abonnement` (int), `numero_compteur`, `date_debut_abonnement`, `statut`, `adresse_de_branchement`, `libelle_contrat`… — no `numero_pds` |
+| `/espace-client/pro` | — | business account description: `contacts[].tiers[].abonnements[]` with `id_abonnement` (**string**), `numero_pds`, `date_debut`, `numero_compteur`, `releve_distance`, `statut`, `adresse_de_branchement`, `etablissement`, `groupe`; tiers carry `siren`/`siret`. Also **opens the business habilitation** server-side; without it subscription routes answer `403 {"message":"ERR_HABILATION_MANQUANTE"}` (time-limited) |
 | `/abonnements/<id>/facturation` | — | subscription: `numero_pds`, `date_debut_abonnement`, `mode_releve` (`TELERELEVE`), `dernier_index_releve`, `date_index_releve`, `solde`, `mode_paiement`, meter number… **also holds IBAN/BIC → never log** |
 | `/consommations/<id>/journalieres` | `mois`, `annee`, `numero-pds`, `date-debut-abonnement` | daily rows |
 | `/consommations/<id>/mensuelles` | `annee`, `numero-pds`, `date-debut-abonnement` | monthly rows |

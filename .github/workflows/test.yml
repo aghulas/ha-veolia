@@ -4,13 +4,22 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 installs the oldest Home Assistant we test against, 3.14 a current one.
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy custom_components/veolia_eau
+      # Types are checked against one Home Assistant version: recent ones annotate config-flow
+      # schemas with another library than voluptuous, which still works at run time (tested).
+      - if: matrix.python-version == '3.12'
+        run: mypy custom_components/veolia_eau
       - run: pytest  # coverage + threshold via pyproject (addopts)
