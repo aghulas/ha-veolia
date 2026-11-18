@@ -17,3 +17,5 @@ samples/real/
 *.zip
 *.aes
 .venv*/
+# Machine-specific notes for Claude Code sessions
+CLAUDE.local.md
