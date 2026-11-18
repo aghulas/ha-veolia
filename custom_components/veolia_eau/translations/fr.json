@@ -1,0 +1,120 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Compte Veolia",
+        "description": "Connectez-vous avec votre compte eau.veolia.fr (particulier ou professionnel). Lecture seule : rien n'est modifié sur le compte.",
+        "data": {
+          "username": "E-mail",
+          "password": "Mot de passe"
+        }
+      },
+      "subscriptions": {
+        "title": "Abonnements",
+        "data": {
+          "subscriptions": "Abonnements à suivre"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Mot de passe Veolia refusé",
+        "description": "Veolia a refusé le mot de passe enregistré pour {username}. Les relèves sont arrêtées tant que vous n'en saisissez pas un valide.",
+        "data": {
+          "password": "Mot de passe"
+        }
+      },
+      "code": {
+        "title": "Code de vérification",
+        "description": "Veolia a envoyé un code de vérification à {username} (première connexion depuis un nouvel endroit). Saisissez-le ici ; il est valable quelques minutes.",
+        "data": {
+          "code": "Code"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Veolia a refusé ces identifiants.",
+      "cannot_connect": "Veolia est injoignable.",
+      "unknown": "Réponse inattendue de Veolia.",
+      "none_selected": "Sélectionnez au moins un abonnement.",
+      "invalid_code": "Veolia a refusé ce code (faux ou expiré)."
+    },
+    "abort": {
+      "already_configured": "Ce compte est déjà configuré.",
+      "no_subscriptions": "Aucun abonnement trouvé sur ce compte.",
+      "reauth_successful": "Mot de passe accepté."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Veolia",
+        "data": {
+          "fetch_hour": "Heure de la relève quotidienne",
+          "backfill_months": "Historique à importer au premier démarrage (mois)",
+          "closed_weekdays": "Jours où le bâtiment est vide",
+          "leak_threshold_l": "Seuil de fuite un jour de fermeture (L)",
+          "leak_consecutive_days": "Jours de fermeture consécutifs au-dessus du seuil"
+        }
+      }
+    }
+  },
+  "issues": {
+    "auth_refused": {
+      "title": "Veolia a refusé le mot de passe",
+      "description": "Veolia a refusé la connexion ({code}). L'intégration a arrêté ses relèves et ne réessaiera pas : réauthentifiez-la depuis la page des intégrations."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_daily_volume": {
+        "name": "Dernier volume journalier"
+      },
+      "closed_day_baseline": {
+        "name": "Talon des jours de fermeture"
+      },
+      "meter_index": {
+        "name": "Index du compteur"
+      },
+      "last_reading_date": {
+        "name": "Date du dernier relevé"
+      },
+      "reading_mode": {
+        "name": "Mode de relève"
+      },
+      "amount_due": {
+        "name": "Reste à payer"
+      },
+      "last_invoice_amount": {
+        "name": "Montant de la dernière facture"
+      },
+      "last_invoice_date": {
+        "name": "Date de la dernière facture"
+      },
+      "last_billed_volume": {
+        "name": "Dernier volume facturé"
+      }
+    },
+    "binary_sensor": {
+      "possible_leak": {
+        "name": "Fuite possible"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Rafraîchir"
+      }
+    }
+  },
+  "selector": {
+    "weekday": {
+      "options": {
+        "mon": "Lundi",
+        "tue": "Mardi",
+        "wed": "Mercredi",
+        "thu": "Jeudi",
+        "fri": "Vendredi",
+        "sat": "Samedi",
+        "sun": "Dimanche"
+      }
+    }
+  }
+}
