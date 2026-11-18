@@ -5,6 +5,7 @@ from .client import VeoliaClient
 from .errors import (
     VeoliaApiError,
     VeoliaAuthRefused,
+    VeoliaChallenge,
     VeoliaConnectionError,
     VeoliaError,
     VeoliaForbiddenRoute,
@@ -15,6 +16,7 @@ __all__ = [
     "Tokens",
     "VeoliaApiError",
     "VeoliaAuthRefused",
+    "VeoliaChallenge",
     "VeoliaClient",
     "VeoliaConnectionError",
     "VeoliaError",

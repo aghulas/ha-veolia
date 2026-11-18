@@ -122,6 +122,7 @@ async def test_errors_do_not_leak_the_body_or_query() -> None:
     with pytest.raises(VeoliaApiError) as err:
         await client.daily(SUB, "PDS-TEST", "2024-11-01", 2026, 10)
     assert "SYNTHETIC" not in str(err.value) and "PDS-TEST" not in str(err.value)
+    assert SUB not in str(err.value) and "/consommations/<id>/journalieres" in str(err.value)
 
 
 async def test_consumption_parameters() -> None:

@@ -14,7 +14,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import VeoliaAuthRefused, VeoliaClient, VeoliaError
+from .api import VeoliaApiError, VeoliaAuthRefused, VeoliaClient, VeoliaError
 from .const import (
     CONF_BACKFILL_MONTHS,
     CONF_CLOSED_WEEKDAYS,
@@ -30,17 +30,24 @@ from .const import (
 )
 from .leak import DEFAULT_CONSECUTIVE, DEFAULT_THRESHOLD_L, closed_day_baseline, possible_leak
 from .models import (
+    BilledPeriod,
     DailyReading,
     Invoice,
     SubscriptionInfo,
+    last_billed_period,
     last_invoice,
+    monthly_as_readings,
     months_between,
     parse_daily,
+    parse_monthly,
     parse_subscription_info,
 )
 from .statistics import async_has_statistics, async_import_daily
 
 _LOGGER = logging.getLogger(__name__)
+
+# Veolia's answers for a period it has nothing for (422 observed on a first backfill).
+NO_DATA_STATUSES = frozenset({400, 404, 422})
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,7 @@ class SubscriptionData:
     baseline: list[tuple[date, float]]
     leak: bool
     invoice: Invoice | None
+    billed: BilledPeriod | None
 
 
 class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
@@ -94,18 +102,47 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
         if info is None:
             raise UpdateFailed("subscription record without delivery point or start date")
         today = dt_util.now().date()
-        if await async_has_statistics(self.hass, sub):
-            since = today - timedelta(days=REFRESH_WINDOW_DAYS)
-        else:  # first run: backfill since the subscription started, within the configured depth
+        first_run = not await async_has_statistics(self.hass, sub)
+        if first_run:  # backfill since the subscription started, within the configured depth
             months = int(self._option(CONF_BACKFILL_MONTHS, DEFAULT_BACKFILL_MONTHS))
             since = today - timedelta(days=31 * months)
+        else:
+            since = today - timedelta(days=REFRESH_WINDOW_DAYS)
         since = max(since, info.start)
+        start = info.start.isoformat()
 
+        # Newest month first: on a first run Veolia refuses (HTTP 4xx) months it has no daily data
+        # for — the backfill then simply stops there. A refusal of a recent month is a real error.
         rows: list[dict[str, Any]] = []
-        for year, month in months_between(since, today):
-            rows += await self.client.daily(sub, info.pds, info.start.isoformat(), year, month)
+        recent = (today - timedelta(days=REFRESH_WINDOW_DAYS)).replace(day=1)
+        for year, month in reversed(months_between(since, today)):
+            try:
+                rows += await self.client.daily(sub, info.pds, start, year, month)
+            except VeoliaApiError as err:
+                if err.status not in NO_DATA_STATUSES or date(year, month, 1) >= recent:
+                    raise
+                _LOGGER.debug(
+                    "Daily history stops before %04d-%02d (HTTP %s)", year, month, err.status
+                )
+                break
         readings = [r for r in parse_daily(rows) if since <= r.day <= today]
-        await async_import_daily(self.hass, sub, f"Veolia {sub}", readings)
+
+        older: list[DailyReading] = []
+        if first_run:  # months that only exist as monthly volumes (before the daily data)
+            first_daily = min((r.day for r in readings if r.litres is not None), default=today)
+            monthly: list[dict[str, Any]] = []
+            for year in range(first_daily.year, since.year - 1, -1):
+                if (year, 1) >= (first_daily.year, first_daily.month):
+                    continue
+                try:
+                    monthly += await self.client.monthly(sub, info.pds, start, year)
+                except VeoliaApiError as err:
+                    if err.status not in NO_DATA_STATUSES:
+                        raise
+                    _LOGGER.debug("Monthly history stops before %04d (HTTP %s)", year, err.status)
+                    break
+            older = monthly_as_readings(parse_monthly(monthly), since, first_daily)
+        await async_import_daily(self.hass, sub, f"Veolia {sub}", older + readings)
 
         closed = {
             WEEKDAYS.index(d) for d in self._option(CONF_CLOSED_WEEKDAYS, DEFAULT_CLOSED_WEEKDAYS)
@@ -123,4 +160,5 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
             baseline=baseline,
             leak=leak,
             invoice=last_invoice(await self.client.invoices(sub)),
+            billed=last_billed_period(await self.client.billing_readings(sub)),
         )

@@ -97,7 +97,7 @@ async def test_setup_backfills_since_the_subscription_start(
     await setup(hass, config)
     assert config.state is ConfigEntryState.LOADED
     months = [c.kwargs["params"]["mois"] for c in http.backend_calls if "journalieres" in c.path]
-    assert months == ["8", "9", "10", "11"]
+    assert months == ["11", "10", "9", "8"]
     assert {c.method for c in http.backend_calls} == {"GET"}
     assert "/espace-client/pro" in [c.path for c in http.backend_calls]  # habilitation opened
 
@@ -128,7 +128,7 @@ async def test_reimport_is_idempotent_and_continues_the_sum(
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
 
     months = [c.kwargs["params"]["mois"] for c in http.backend_calls if "journalieres" in c.path]
-    assert months == ["10", "11"]  # only the refresh window, not the whole history
+    assert months == ["11", "10"]  # only the refresh window, not the whole history
     after = await stats(hass)
     assert after[: len(before)] == before
     assert len(after) == len(before) + 1
@@ -137,6 +137,98 @@ async def test_reimport_is_idempotent_and_continues_the_sum(
     await config.runtime_data.async_refresh()
     await settle(hass)
     assert await stats(hass) == after
+
+
+async def test_months_before_the_daily_data_come_from_monthly_volumes(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    backend.start, backend.daily_start = "2025-11-10", "2026-09-01"
+    await setup(hass, entry())
+    years = [c.kwargs["params"]["annee"] for c in http.backend_calls if "mensuelles" in c.path]
+    assert years == ["2026", "2025"]
+    found = await get_instance(hass).async_add_executor_job(
+        statistics_during_period,
+        hass,
+        datetime(2025, 1, 1, tzinfo=dt_util.UTC),
+        None,
+        {statistic_id(SUB)},
+        "hour",
+        None,
+        {"state", "sum"},
+    )
+    rows = found[statistic_id(SUB)]
+    monthly = rows[:10]  # November 2025 … August 2026, one row on the 1st of each month
+    assert [r["state"] for r in monthly] == [100_000.0] * 10
+    assert monthly[0]["start"] == local_midnight(date(2025, 11, 1), PARIS).timestamp()
+    assert monthly[-1]["start"] == local_midnight(date(2026, 8, 1), PARIS).timestamp()
+    assert rows[10]["start"] == local_midnight(date(2026, 9, 1), PARIS).timestamp()
+    assert rows[10]["sum"] == 1_000_000.0 + backend.litres(date(2026, 9, 1))
+    assert len(rows) == 10 + (backend.last_day - date(2026, 9, 1)).days + 1
+
+
+async def test_backfill_stops_where_veolia_refuses_older_months(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    backend.start = "2020-03-01"
+    backend.daily_start, backend.daily_refused_before = "2026-07-01", "2026-07"
+    backend.monthly_refused_before = 2025
+    config = entry()
+    await setup(hass, config)
+    assert config.state is ConfigEntryState.LOADED
+    daily = [c.kwargs["params"]["mois"] for c in http.backend_calls if "journalieres" in c.path]
+    assert daily == ["11", "10", "9", "8", "7", "6"]  # June is refused: no older month is asked
+    years = [c.kwargs["params"]["annee"] for c in http.backend_calls if "mensuelles" in c.path]
+    assert years == ["2026", "2025", "2024"]  # 2024 is refused: 2023 is not asked
+    found = await get_instance(hass).async_add_executor_job(
+        statistics_during_period,
+        hass,
+        datetime(2020, 1, 1, tzinfo=dt_util.UTC),
+        None,
+        {statistic_id(SUB)},
+        "hour",
+        None,
+        {"state", "sum"},
+    )
+    rows = found[statistic_id(SUB)]
+    assert rows[0]["start"] == local_midnight(date(2025, 1, 1), PARIS).timestamp()
+    assert [r["state"] for r in rows[:18]] == [100_000.0] * 18  # Jan 2025 … June 2026
+    assert rows[18]["start"] == local_midnight(date(2026, 7, 1), PARIS).timestamp()
+
+
+async def test_refusal_of_a_recent_month_is_an_error(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    backend.daily_refused_before = "2026-12"
+    config = entry()
+    await setup(hass, config)
+    assert config.state is ConfigEntryState.SETUP_RETRY
+    assert SUB not in (config.reason or "") and "<id>" in (config.reason or "")
+    assert len([c for c in http.backend_calls if "journalieres" in c.path]) == 1
+
+
+async def test_monthly_volumes_are_not_fetched_again_after_the_first_run(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    backend.start, backend.daily_start = "2025-11-10", "2026-09-01"
+    config = entry()
+    await setup(hass, config)
+    before = await stats(hass)
+    http.calls.clear()
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    assert not [c for c in http.backend_calls if "mensuelles" in c.path]
+    assert await stats(hass) == before
+
+
+async def test_refresh_button(hass: HomeAssistant, http: FakeHttp) -> None:
+    await setup(hass, entry())
+    http.calls.clear()
+    await hass.services.async_call(
+        "button", "press", {"entity_id": f"button.veolia_{SUB}_refresh"}, blocking=True
+    )
+    await settle(hass)
+    assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
+    assert {c.method for c in http.backend_calls} == {"GET"}
 
 
 async def test_sensors(hass: HomeAssistant, http: FakeHttp) -> None:
@@ -152,6 +244,9 @@ async def test_sensors(hass: HomeAssistant, http: FakeHttp) -> None:
     assert state("amount_due").state == "42.5"
     assert state("last_invoice_amount").state == "912.3"
     assert state("last_invoice_date").state == "2026-09-30"
+    assert state("last_billed_volume").state == "131.5"
+    assert state("last_billed_volume").attributes["from"] == "2026-06-30"
+    assert state("last_billed_volume").attributes["to"] == "2026-09-30"
     assert hass.states.get(f"binary_sensor.veolia_{SUB}_possible_leak").state == "off"
 
 

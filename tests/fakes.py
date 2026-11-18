@@ -22,7 +22,12 @@ class Call:
 
     @property
     def flow(self) -> str:
-        return self.kwargs["json"]["AuthFlow"]
+        """AuthFlow of an InitiateAuth call, or the Cognito action for the other calls."""
+        return self.kwargs["json"].get("AuthFlow") or self.action
+
+    @property
+    def action(self) -> str:
+        return self.kwargs["headers"]["X-Amz-Target"].rsplit(".", 1)[-1]
 
 
 class FakeResponse:
@@ -80,3 +85,9 @@ def auth_ok(access: str = "access-1", refresh: str | None = "refresh-1") -> Fake
 
 def auth_error(code: str, status: int = 400) -> FakeResponse:
     return FakeResponse(status, {"__type": code, "message": "synthetic"})
+
+
+def auth_challenge(name: str = "EMAIL_OTP", session: str = "cognito-session-1") -> FakeResponse:
+    return FakeResponse(
+        200, {"ChallengeName": name, "Session": session, "ChallengeParameters": {"USERNAME": "u-1"}}
+    )

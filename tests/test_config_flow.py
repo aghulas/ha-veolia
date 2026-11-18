@@ -13,7 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.veolia_eau.const import DOMAIN
 
 from .conftest import PASSWORD, SUB, USER, Backend, account
-from .fakes import FakeHttp, FakeResponse, auth_error, auth_ok
+from .fakes import FakeHttp, FakeResponse, auth_challenge, auth_error, auth_ok
 
 CREDS = {"username": USER, "password": PASSWORD}
 
@@ -123,3 +123,63 @@ async def test_options(hass: HomeAssistant) -> None:
     }
     done = await hass.config_entries.options.async_configure(result["flow_id"], options)
     assert done["type"] is FlowResultType.CREATE_ENTRY and entry.options == options
+
+
+async def test_verification_code_step(hass: HomeAssistant, http: FakeHttp) -> None:
+    answers = [auth_challenge(), auth_error("CodeMismatchException"), auth_ok("a", "refresh-otp")]
+    http.cognito = lambda c: answers.pop(0)
+    result = await start(hass)
+    assert result["type"] is FlowResultType.FORM and result["step_id"] == "code"
+    assert result["description_placeholders"] == {"username": USER}
+    assert http.backend_calls == []
+
+    wrong = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "000000"})
+    assert wrong["step_id"] == "code" and wrong["errors"] == {"base": "invalid_code"}
+
+    done = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "123456"})
+    assert done["type"] is FlowResultType.CREATE_ENTRY
+    assert done["data"] == {**CREDS, "refresh_token": "refresh-otp", "subscriptions": [SUB]}
+    assert [c.flow for c in http.cognito_calls] == [
+        "USER_PASSWORD_AUTH",
+        "RespondToAuthChallenge",
+        "RespondToAuthChallenge",
+    ]
+
+
+async def test_backend_error_after_the_code_returns_to_the_login_form(
+    hass: HomeAssistant, http: FakeHttp
+) -> None:
+    answers = [auth_challenge(), auth_ok()]
+    http.cognito = lambda c: answers.pop(0)
+    http.backend = lambda c: FakeResponse(500)
+    result = await start(hass)
+    back = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "123456"})
+    assert back["step_id"] == "user" and back["errors"] == {"base": "unknown"}
+
+
+async def test_second_challenge_asks_again(hass: HomeAssistant, http: FakeHttp) -> None:
+    answers = [auth_challenge(), auth_challenge("SMS_MFA", "cognito-session-2"), auth_ok()]
+    http.cognito = lambda c: answers.pop(0)
+    result = await start(hass)
+    again = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "1"})
+    assert again["step_id"] == "code" and not again["errors"]
+    done = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "2"})
+    assert done["type"] is FlowResultType.CREATE_ENTRY
+    assert http.cognito_calls[2].kwargs["json"]["Session"] == "cognito-session-2"
+
+
+async def test_reauth_with_verification_code(hass: HomeAssistant, http: FakeHttp) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=USER,
+        data={**CREDS, "subscriptions": [SUB], "refresh_token": "old"},
+    )
+    entry.add_to_hass(hass)
+    result = await entry.start_reauth_flow(hass)
+    answers = [auth_challenge(), auth_ok("a", "refresh-new")]
+    http.cognito = lambda c: answers.pop(0)
+    code = await hass.config_entries.flow.async_configure(result["flow_id"], {"password": "new"})
+    assert code["step_id"] == "code"
+    done = await hass.config_entries.flow.async_configure(result["flow_id"], {"code": "123456"})
+    assert done["type"] is FlowResultType.ABORT and done["reason"] == "reauth_successful"
+    assert entry.data["password"] == "new" and entry.data["refresh_token"] == "refresh-new"

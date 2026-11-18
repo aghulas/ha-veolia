@@ -16,6 +16,15 @@ Unofficial, undocumented, may change. Source of truth: `~/dev/veolia-mcp/veolia_
 - Refusals are HTTP 400 with `__type`: `NotAuthorizedException`, `UserNotFoundException`,
   `UserNotConfirmedException`, `PasswordResetRequiredException` — not observed by us, handled as
   "never retry"; a `ChallengeName` in a 200 answer (MFA…) is handled the same way.
+- **Verification code (answering it is not yet tested end to end).** On 2026-11-18 the same
+  credentials that the probe had logged in with from a Mac were refused twice from Home Assistant
+  on another network, and the account owner received one e-mail with a code per attempt. Users of
+  the upstream integration report the same: a "suspicious activity" notice with a 6-digit code
+  valid 15 minutes (upstream issues #96, #142). We therefore
+  treat a `ChallengeName` answer as a challenge a person can answer with
+  `RespondToAuthChallenge` (`ChallengeResponses.USERNAME` + the code field of that challenge
+  type). To confirm on the next attempt: the challenge name, logged by the config flow, and
+  whether a later password login from the same place asks again.
 - Access token ≈ 1 h; renew with `REFRESH_TOKEN_AUTH` (`AuthParameters.REFRESH_TOKEN`, plus `DEVICE_KEY`
   if device tracking ever appears). Observed once: refresh refused ≈ 40 h after login → full re-login.
 - The web app stores tokens encrypted in localStorage (react-secure-storage) — irrelevant for HA.
