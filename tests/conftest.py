@@ -16,6 +16,13 @@ USER = "user@example.org"
 PASSWORD = "synthetic-password"
 
 
+@pytest.fixture
+def recorder_config() -> dict[str, Any]:
+    """No nightly purge or repack: tests move the clock across days and fire timers, and the
+    recorder's nightly maintenance under a frozen clock made a test hang on the CI."""
+    return {"auto_purge": False, "auto_repack": False}
+
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(recorder_mock: Any, enable_custom_integrations: None) -> None:
     """Allow loading the custom integration; the recorder must be set up before hass."""
