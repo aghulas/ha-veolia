@@ -20,3 +20,5 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-q --cov=custom_components/veolia_eau --cov-report=term-missing --cov-fail-under=90"
 pythonpath = "."
+# A test that hangs fails with a stack dump instead of blocking the CI for hours.
+timeout = 120
