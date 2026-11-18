@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .const import CONF_HOLIDAY_CALENDAR
 from .coordinator import VeoliaCoordinator
 
 
@@ -31,8 +32,12 @@ async def async_get_config_entry_diagnostics(
                 "has_invoice": data.invoice is not None,
             }
         )
+    options = dict(entry.options)
+    if options.get(CONF_HOLIDAY_CALENDAR):  # an entity id may carry a name
+        options[CONF_HOLIDAY_CALENDAR] = "set"
     return {
-        "options": dict(entry.options),
+        "options": options,
+        "holiday_calendar_missed": coordinator.calendar_missed,
         "subscription_count": len(coordinator.subscriptions),
         "last_update_success": coordinator.last_update_success,
         "auth_refused": coordinator.client.session.refused,

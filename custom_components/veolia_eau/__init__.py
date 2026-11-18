@@ -7,10 +7,12 @@ from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later, async_track_time_change
+from homeassistant.helpers.start import async_at_started
 
 from .api import CognitoSession, Tokens, VeoliaClient
 from .const import (
@@ -18,10 +20,11 @@ from .const import (
     CONF_FETCH_HOUR,
     CONF_REFRESH_TOKEN,
     DEFAULT_FETCH_HOUR,
+    DOMAIN,
     PLATFORMS,
     STARTUP_RETRY_S,
 )
-from .coordinator import VeoliaCoordinator
+from .coordinator import VeoliaCoordinator, leak_issue_id
 
 type VeoliaConfigEntry = ConfigEntry[VeoliaCoordinator]
 
@@ -64,6 +67,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: VeoliaConfigEntry) -> bo
 
         entry.async_on_unload(async_call_later(hass, STARTUP_RETRY_S, retry_once))
 
+    if hass.state is not CoreState.running:
+        # The holiday calendar may be loaded after this entry: once Home Assistant has started,
+        # redo the leak detection with it (no call to Veolia).
+        async def calendar_ready(hass: HomeAssistant) -> None:
+            if coordinator.calendar_missed:
+                await coordinator.async_recompute_leak()
+
+        entry.async_on_unload(async_at_started(hass, calendar_ready))
+
     async def daily_refresh(now: datetime) -> None:
         await coordinator.async_refresh()
 
@@ -90,4 +102,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: VeoliaConfigEntry) -> bo
 
 async def async_unload_entry(hass: HomeAssistant, entry: VeoliaConfigEntry) -> bool:
     """Unload one Veolia account."""
+    for sub in entry.runtime_data.subscriptions:  # raised again at the next set-up if still true
+        ir.async_delete_issue(hass, DOMAIN, leak_issue_id(sub))
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

@@ -51,8 +51,14 @@
           "fetch_hour": "Hour of the daily fetch",
           "backfill_months": "History to import at first start (months)",
           "closed_weekdays": "Days when the building is empty",
+          "holiday_calendar": "Holiday calendar (optional)",
           "leak_threshold_l": "Leak threshold on a closed day (L)",
-          "leak_consecutive_days": "Closed days in a row above the threshold"
+          "leak_consecutive_days": "Closed days in a row above the threshold",
+          "leak_repair_issue": "Raise a Repairs issue when a leak is possible"
+        },
+        "description": "Closed days are the days when the building is empty: the weekdays below, plus every day covered by an event of the holiday calendar, if one is chosen.",
+        "data_description": {
+          "holiday_calendar": "Every day covered by an event of this calendar counts as a closed day. Use all-day events."
         }
       }
     }
@@ -61,6 +67,10 @@
     "auth_refused": {
       "title": "Veolia refused the password",
       "description": "Veolia refused the login ({code}). The integration has stopped polling and will not try again: re-authenticate it from the integrations page."
+    },
+    "possible_leak": {
+      "title": "Possible water leak (Veolia {subscription})",
+      "description": "The water volume of the last {days} closed day(s) is above the threshold of {threshold} L: {volumes}. On a day when the building is empty this points to a continuous flow: a running flush, a dripping tap or a leak. This issue disappears by itself once a closed day is back under the threshold. The thresholds are in the options of the integration."
     }
   },
   "entity": {
