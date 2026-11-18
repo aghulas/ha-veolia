@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -410,30 +411,42 @@ async def test_refusal_survives_a_restart_until_reauth(hass: HomeAssistant, http
 
 
 async def test_backend_down_at_startup_is_retried_once_then_waits(
-    hass: HomeAssistant, http: FakeHttp, backend: Backend, freezer: FrozenDateTimeFactory
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
 ) -> None:
+    later: list[tuple[float, Callable]] = []
+
+    def call_later(hass_: HomeAssistant, delay: float, action: Callable) -> Callable[[], None]:
+        later.append((delay, action))
+        return lambda: None
+
     http.backend = lambda c: FakeResponse(503)
     config = entry()
-    await setup(hass, config)
-    assert config.state is ConfigEntryState.LOADED
+    with patch("custom_components.veolia_eau.async_call_later", side_effect=call_later):
+        await setup(hass, config)
+    assert config.state is ConfigEntryState.LOADED  # no set-up retry loop by Home Assistant
     assert config.runtime_data.last_update_success is False
     assert len(http.backend_calls) == 1
-    for minutes in (5, 20, 29):  # Home Assistant does not retry on its own
-        freezer.move_to(NOW + timedelta(minutes=minutes))
-        async_fire_time_changed(hass)
-        await settle(hass)
-    assert len(http.backend_calls) == 1
+    ((delay, retry),) = later  # exactly one delayed retry
+    assert delay == 30 * 60
 
     http.backend = backend
-    freezer.move_to(NOW + timedelta(minutes=31))
-    async_fire_time_changed(hass)
-    await wait_for(hass, lambda: config.runtime_data.last_update_success)
+    await retry(NOW + timedelta(minutes=30))
+    await settle(hass)
+    assert config.runtime_data.last_update_success is True
     assert hass.states.get(f"sensor.veolia_{SUB}_amount_due").state == "42.5"
     count = len(http.backend_calls)
-    freezer.move_to(NOW + timedelta(minutes=90))
-    async_fire_time_changed(hass)
+    await retry(NOW + timedelta(minutes=31))  # a late duplicate does nothing once it succeeded
     await settle(hass)
     assert len(http.backend_calls) == count
+    assert len(later) == 1
+
+
+async def test_no_delayed_retry_when_the_first_fetch_succeeds(
+    hass: HomeAssistant, http: FakeHttp
+) -> None:
+    with patch("custom_components.veolia_eau.async_call_later") as call_later:
+        await setup(hass, entry())
+    call_later.assert_not_called()
 
 
 async def test_backend_failure_is_not_an_auth_failure(hass: HomeAssistant, http: FakeHttp) -> None:
@@ -447,19 +460,27 @@ async def test_backend_failure_is_not_an_auth_failure(hass: HomeAssistant, http:
     assert hass.states.get(f"sensor.veolia_{SUB}_amount_due").state == "unavailable"
 
 
-async def test_no_fetch_before_the_configured_hour(
-    hass: HomeAssistant, http: FakeHttp, freezer: FrozenDateTimeFactory
+async def test_daily_fetch_is_scheduled_once_a_day_at_the_configured_hour(
+    hass: HomeAssistant, http: FakeHttp
 ) -> None:
-    # Same day as the set-up (11:00): the clock does not cross the recorder's nightly tasks.
-    await setup(hass, entry(fetch_hour=15))
+    """The schedule is checked directly: moving a frozen clock and firing timers made this test
+    hang now and then on the CI (Home Assistant's timers and the recorder under freezegun)."""
+    scheduled: list[tuple[Callable, dict]] = []
+
+    def track(hass_: HomeAssistant, action: Callable, **when: int) -> Callable[[], None]:
+        scheduled.append((action, when))
+        return lambda: None
+
+    with patch("custom_components.veolia_eau.async_track_time_change", side_effect=track):
+        await setup(hass, entry(fetch_hour=15))
+    ((action, when),) = scheduled
+    assert when["hour"] == 15
+    assert 0 <= when["minute"] < 60 and 0 <= when["second"] < 60
+    assert set(when) == {"hour", "minute", "second"}  # once a day, not every hour or minute
+
     http.calls.clear()
-    freezer.move_to(datetime(2026, 11, 18, 14, 59, 59, tzinfo=PARIS))
-    async_fire_time_changed(hass)
+    await action(datetime(2026, 11, 18, 15, 7, 0, tzinfo=PARIS))
     await settle(hass)
-    assert http.calls == []
-    freezer.move_to(datetime(2026, 11, 18, 16, 0, 0, tzinfo=PARIS))
-    async_fire_time_changed(hass)
-    await wait_for(hass, lambda: any(c.path.endswith("/factures") for c in http.backend_calls))
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
 
 
