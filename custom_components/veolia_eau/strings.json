@@ -1,0 +1,91 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Veolia account",
+        "description": "Log in with your eau.veolia.fr account (residential or business). Read-only: nothing is changed on the account.",
+        "data": {
+          "username": "E-mail",
+          "password": "Password"
+        }
+      },
+      "subscriptions": {
+        "title": "Subscriptions",
+        "data": {
+          "subscriptions": "Subscriptions to follow"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Veolia password refused",
+        "description": "Veolia refused the stored password for {username}. Polling is stopped until you enter a valid one.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Veolia refused these credentials.",
+      "cannot_connect": "Veolia cannot be reached.",
+      "unknown": "Unexpected answer from Veolia.",
+      "none_selected": "Select at least one subscription."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "no_subscriptions": "No subscription found on this account.",
+      "reauth_successful": "Password accepted."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Veolia options",
+        "data": {
+          "fetch_hour": "Hour of the daily fetch",
+          "backfill_months": "History to import at first start (months)",
+          "closed_weekdays": "Days when the building is empty",
+          "leak_threshold_l": "Leak threshold on a closed day (L)",
+          "leak_consecutive_days": "Closed days in a row above the threshold"
+        }
+      }
+    }
+  },
+  "issues": {
+    "auth_refused": {
+      "title": "Veolia refused the password",
+      "description": "Veolia refused the login ({code}). The integration has stopped polling and will not try again: re-authenticate it from the integrations page."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_daily_volume": {
+        "name": "Last daily volume"
+      },
+      "closed_day_baseline": {
+        "name": "Closed-day baseline"
+      },
+      "meter_index": {
+        "name": "Meter index"
+      },
+      "last_reading_date": {
+        "name": "Last reading date"
+      },
+      "reading_mode": {
+        "name": "Reading mode"
+      },
+      "amount_due": {
+        "name": "Amount due"
+      },
+      "last_invoice_amount": {
+        "name": "Last invoice amount"
+      },
+      "last_invoice_date": {
+        "name": "Last invoice date"
+      }
+    },
+    "binary_sensor": {
+      "possible_leak": {
+        "name": "Possible leak"
+      }
+    }
+  }
+}
