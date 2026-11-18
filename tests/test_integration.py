@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -51,6 +53,17 @@ async def settle(hass: HomeAssistant) -> None:
     for _ in range(3):
         await hass.async_block_till_done()
         await async_wait_recording_done(hass)
+
+
+async def wait_for(hass: HomeAssistant, condition: Callable[[], bool]) -> None:
+    """Wait for a refresh started by a timer: it runs in its own task and waits on the recorder
+    thread, so settling once does not guarantee it is over."""
+    for _ in range(300):
+        await settle(hass)
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition not reached")
 
 
 async def setup(hass: HomeAssistant, config: MockConfigEntry) -> None:
@@ -122,8 +135,8 @@ async def test_reimport_is_idempotent_and_continues_the_sum(
     http.calls.clear()
 
     backend.last_day = date(2026, 11, 18)
-    freezer.move_to(datetime(2026, 11, 19, 11, 0, tzinfo=PARIS))
-    async_fire_time_changed(hass)  # the daily trigger (10:xx) is now due: exactly one refresh
+    freezer.move_to(datetime(2026, 11, 19, 9, 0, tzinfo=PARIS))  # before the daily trigger
+    await config.runtime_data.async_refresh()
     await settle(hass)
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
 
@@ -338,8 +351,7 @@ async def test_backend_down_at_startup_is_retried_once_then_waits(
     http.backend = backend
     freezer.move_to(NOW + timedelta(minutes=31))
     async_fire_time_changed(hass)
-    await settle(hass)
-    assert config.runtime_data.last_update_success is True
+    await wait_for(hass, lambda: config.runtime_data.last_update_success)
     assert hass.states.get(f"sensor.veolia_{SUB}_amount_due").state == "42.5"
     count = len(http.backend_calls)
     freezer.move_to(NOW + timedelta(minutes=90))
@@ -370,7 +382,7 @@ async def test_no_fetch_before_the_configured_hour(
     assert http.calls == []
     freezer.move_to(datetime(2026, 11, 19, 11, 0, 0, tzinfo=PARIS))
     async_fire_time_changed(hass)
-    await settle(hass)
+    await wait_for(hass, lambda: any(c.path.endswith("/factures") for c in http.backend_calls))
     assert len([c for c in http.backend_calls if c.path.endswith("/facturation")]) == 1
 
 
