@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+# Never commit secrets or real captures
+secrets*.json
+session*.json
+captures/
+samples/real/
+*.zip
+*.aes
