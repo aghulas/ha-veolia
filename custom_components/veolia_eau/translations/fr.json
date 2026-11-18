@@ -51,8 +51,14 @@
           "fetch_hour": "Heure de la relève quotidienne",
           "backfill_months": "Historique à importer au premier démarrage (mois)",
           "closed_weekdays": "Jours où le bâtiment est vide",
+          "holiday_calendar": "Calendrier des congés (facultatif)",
           "leak_threshold_l": "Seuil de fuite un jour de fermeture (L)",
-          "leak_consecutive_days": "Jours de fermeture consécutifs au-dessus du seuil"
+          "leak_consecutive_days": "Jours de fermeture consécutifs au-dessus du seuil",
+          "leak_repair_issue": "Créer une alerte dans Réparations quand une fuite est possible"
+        },
+        "description": "Les jours de fermeture sont les jours où le bâtiment est vide : les jours de la semaine ci-dessous, plus chaque jour couvert par un événement du calendrier des congés, s'il est renseigné.",
+        "data_description": {
+          "holiday_calendar": "Chaque jour couvert par un événement de ce calendrier compte comme un jour de fermeture. Utilisez des événements sur la journée entière."
         }
       }
     }
@@ -61,6 +67,10 @@
     "auth_refused": {
       "title": "Veolia a refusé le mot de passe",
       "description": "Veolia a refusé la connexion ({code}). L'intégration a arrêté ses relèves et ne réessaiera pas : réauthentifiez-la depuis la page des intégrations."
+    },
+    "possible_leak": {
+      "title": "Fuite d'eau possible (Veolia {subscription})",
+      "description": "Le volume d'eau des {days} dernier(s) jour(s) de fermeture dépasse le seuil de {threshold} L : {volumes}. Un jour où le bâtiment est vide, cela indique un écoulement permanent : chasse d'eau qui coule, robinet qui goutte ou fuite. Cette alerte disparaît d'elle-même dès qu'un jour de fermeture repasse sous le seuil. Les seuils se règlent dans les options de l'intégration."
     }
   },
   "entity": {

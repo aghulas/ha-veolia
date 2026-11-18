@@ -18,7 +18,12 @@ from homeassistant.const import CONF_CODE, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
+from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+)
 
 from .api import (
     CognitoSession,
@@ -34,13 +39,16 @@ from .const import (
     CONF_BACKFILL_MONTHS,
     CONF_CLOSED_WEEKDAYS,
     CONF_FETCH_HOUR,
+    CONF_HOLIDAY_CALENDAR,
     CONF_LEAK_DAYS,
+    CONF_LEAK_ISSUE,
     CONF_LEAK_THRESHOLD,
     CONF_REFRESH_TOKEN,
     CONF_SUBSCRIPTIONS,
     DEFAULT_BACKFILL_MONTHS,
     DEFAULT_CLOSED_WEEKDAYS,
     DEFAULT_FETCH_HOUR,
+    DEFAULT_LEAK_ISSUE,
     DOMAIN,
     WEEKDAYS,
 )
@@ -218,7 +226,7 @@ class VeoliaConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class VeoliaOptionsFlow(OptionsFlow):
-    """Fetch hour, backfill depth and leak detection settings."""
+    """Fetch hour, backfill depth, closed days (weekdays, calendar) and leak detection."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Single form."""
@@ -239,12 +247,20 @@ class VeoliaOptionsFlow(OptionsFlow):
                 vol.Required(
                     CONF_CLOSED_WEEKDAYS, default=get(CONF_CLOSED_WEEKDAYS, DEFAULT_CLOSED_WEEKDAYS)
                 ): weekdays,
+                # Optional, and can be emptied again: a suggested value, not a default.
+                vol.Optional(
+                    CONF_HOLIDAY_CALENDAR,
+                    description={"suggested_value": get(CONF_HOLIDAY_CALENDAR)},
+                ): EntitySelector(EntitySelectorConfig(domain="calendar")),
                 vol.Required(
                     CONF_LEAK_THRESHOLD, default=get(CONF_LEAK_THRESHOLD, DEFAULT_THRESHOLD_L)
                 ): vol.All(vol.Coerce(float), vol.Range(min=0)),
                 vol.Required(
                     CONF_LEAK_DAYS, default=get(CONF_LEAK_DAYS, DEFAULT_CONSECUTIVE)
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+                vol.Required(
+                    CONF_LEAK_ISSUE, default=get(CONF_LEAK_ISSUE, DEFAULT_LEAK_ISSUE)
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
