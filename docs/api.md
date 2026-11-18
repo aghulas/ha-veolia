@@ -1,6 +1,6 @@
 # Veolia customer API (eau.veolia.fr) — as reverse-engineered for the MCP connector (Oct. 2026)
 
-Unofficial, undocumented, may change. Source of truth: `~/dev/veolia-mcp/veolia_mcp/`.
+Unofficial, undocumented, may change. First mapped for a private MCP connector, then confirmed by this integration.
 
 ## Authentication — AWS Cognito
 
