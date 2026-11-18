@@ -93,3 +93,106 @@ def months_between(start: date, end: date) -> list[tuple[int, int]]:
         out.append((year, month))
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     return out
+
+
+@dataclass(frozen=True)
+class Subscription:
+    """One subscription of the account, as listed by /espace-client or /espace-client/pro."""
+
+    id: str
+    meter: str | None
+    address: str | None
+
+    @property
+    def label(self) -> str:
+        """Text shown to the account owner when choosing subscriptions."""
+        parts = [self.address, f"n° {self.meter}" if self.meter else None]
+        return " — ".join(p for p in parts if p) or self.id
+
+
+def _text(value: Any) -> str | None:
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def _dicts(value: Any) -> list[dict[str, Any]]:
+    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+
+def parse_subscriptions(payload: Any) -> list[Subscription]:
+    """contacts[].tiers[].abonnements[] → subscriptions, deduplicated, sorted by id.
+
+    Works for both account descriptions: `id_abonnement` is an int in one and a string in the other.
+    """
+    found: dict[str, Subscription] = {}
+    contacts = payload.get("contacts") if isinstance(payload, dict) else None
+    for contact in _dicts(contacts):
+        for tiers in _dicts(contact.get("tiers")):
+            for row in _dicts(tiers.get("abonnements")):
+                raw = row.get("id_abonnement")
+                if isinstance(raw, bool) or not isinstance(raw, int | str):
+                    continue
+                sub_id = str(raw).strip()
+                if not sub_id.isdigit() or sub_id in found:
+                    continue
+                found[sub_id] = Subscription(
+                    id=sub_id,
+                    meter=_text(row.get("numero_compteur")),
+                    address=_text(row.get("adresse_de_branchement")),
+                )
+    return sorted(found.values(), key=lambda s: s.id)
+
+
+@dataclass(frozen=True)
+class SubscriptionInfo:
+    """What we keep of /abonnements/<id>/facturation (the rest holds banking data)."""
+
+    pds: str
+    start: date
+    reading_mode: str | None
+    index_m3: float | None
+    index_date: date | None
+    balance: float | None
+
+
+def _date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def parse_subscription_info(data: dict[str, Any]) -> SubscriptionInfo | None:
+    """None when the fields needed to query consumption are missing."""
+    pds, start = _text(data.get("numero_pds")), _date(data.get("date_debut_abonnement"))
+    if pds is None or start is None:
+        return None
+    return SubscriptionInfo(
+        pds=pds,
+        start=start,
+        reading_mode=_text(data.get("mode_releve")),
+        index_m3=_number(data.get("dernier_index_releve")),
+        index_date=_date(data.get("date_index_releve")),
+        balance=_number(data.get("solde")),
+    )
+
+
+@dataclass(frozen=True)
+class Invoice:
+    """An invoice (not a reminder, not a payment plan)."""
+
+    day: date
+    amount: float | None
+
+
+INVOICE_CODE = "CFAEAU"
+
+
+def last_invoice(rows: Iterable[dict[str, Any]]) -> Invoice | None:
+    """Most recent invoice of the documents list."""
+    invoices = [
+        Invoice(day, _number(row.get("montant_facture_ttc")))
+        for row in rows
+        if row.get("code_document") == INVOICE_CODE
+        and (day := _date(row.get("date_emission"))) is not None
+    ]
+    return max(invoices, key=lambda i: i.day, default=None)

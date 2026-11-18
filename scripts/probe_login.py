@@ -46,7 +46,9 @@ def shape(value: Any, depth: int = 0) -> str:
 
 async def main(username: str, password: str) -> int:
     seen: list[Tokens] = []
-    async with aiohttp.ClientSession() as http:
+    # System resolver: the aiodns/pycares pair pulled in by the dev environment can be broken.
+    connector = aiohttp.TCPConnector(resolver=aiohttp.ThreadedResolver())
+    async with aiohttp.ClientSession(connector=connector) as http:
         session = CognitoSession(http, username, password, on_tokens=seen.append)
         client = VeoliaClient(http, session)
         try:

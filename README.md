@@ -1,6 +1,7 @@
 # Veolia Eau (pro) — Home Assistant integration
 
-**Status: scaffolding — nothing usable yet.** Unofficial, not affiliated with Veolia. This is a new
+**Status: early — login, subscription choice, daily statistics, leak detection and invoice sensors
+are written and tested against a synthetic backend; not yet run in a real Home Assistant.** Unofficial, not affiliated with Veolia. This is a new
 integration (domain `veolia_eau`), separate from the community integration
 [Jezza34000/homeassistant_veolia](https://github.com/Jezza34000/homeassistant_veolia) (MIT), whose
 work on the eau.veolia.fr API it builds on; see `docs/decision.md` for why.
