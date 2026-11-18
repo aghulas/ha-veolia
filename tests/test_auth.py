@@ -10,10 +10,11 @@ from custom_components.veolia_eau.api import (
     Tokens,
     VeoliaApiError,
     VeoliaAuthRefused,
+    VeoliaChallenge,
     VeoliaConnectionError,
 )
 
-from .fakes import Call, FakeHttp, FakeResponse, auth_error, auth_ok
+from .fakes import Call, FakeHttp, FakeResponse, auth_challenge, auth_error, auth_ok
 
 PASSWORD = "synthetic-password"
 
@@ -115,7 +116,7 @@ async def test_refused_refresh_then_refused_password_is_two_calls_then_locked() 
     assert [c.flow for c in http.cognito_calls] == ["REFRESH_TOKEN_AUTH", "USER_PASSWORD_AUTH"]
 
 
-async def test_challenge_is_a_refusal() -> None:
+async def test_challenge_is_a_refusal_when_nobody_answers() -> None:
     http = FakeHttp(cognito=lambda c: FakeResponse(200, {"ChallengeName": "SMS_MFA"}))
     session = make(http)
     with pytest.raises(VeoliaAuthRefused) as err:
@@ -176,3 +177,60 @@ async def test_forget_access_token_forces_a_renewal() -> None:
     await session.token()
     session.forget_access_token()
     assert await session.token() == "access-2"
+
+
+async def test_challenge_can_be_answered_once_by_a_person() -> None:
+    answers = [auth_challenge(), auth_ok("access-7", "refresh-7")]
+    http = FakeHttp(cognito=lambda c: answers.pop(0))
+    session = make(http)
+    with pytest.raises(VeoliaChallenge) as err:
+        await session.token()
+    assert err.value.code == "EMAIL_OTP" and "cognito-session-1" not in str(err.value)
+    with pytest.raises(VeoliaAuthRefused):  # locked meanwhile: nothing is sent
+        await session.token()
+    assert len(http.cognito_calls) == 1
+
+    assert await session.answer_challenge(err.value, " 123456 ") == "access-7"
+    call = http.cognito_calls[1]
+    assert call.action == "RespondToAuthChallenge"
+    assert call.kwargs["json"] == {
+        "ChallengeName": "EMAIL_OTP",
+        "ClientId": call.kwargs["json"]["ClientId"],
+        "Session": "cognito-session-1",
+        "ChallengeResponses": {"USERNAME": "u-1", "EMAIL_OTP_CODE": "123456"},
+    }
+    assert session.refused is None
+    assert await session.token() == "access-7"
+    assert len(http.cognito_calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("name", "key"),
+    [("SMS_MFA", "SMS_MFA_CODE"), ("CUSTOM_CHALLENGE", "ANSWER"), ("OTHER", "ANSWER")],
+)
+async def test_challenge_answer_field(name: str, key: str) -> None:
+    answers = [FakeResponse(200, {"ChallengeName": name, "Session": "s"}), auth_ok()]
+    http = FakeHttp(cognito=lambda c: answers.pop(0))
+    session = make(http)
+    with pytest.raises(VeoliaChallenge) as err:
+        await session.token()
+    await session.answer_challenge(err.value, "42")
+    assert http.cognito_calls[1].kwargs["json"]["ChallengeResponses"] == {
+        "USERNAME": "user@example.org",
+        key: "42",
+    }
+
+
+@pytest.mark.parametrize("code", ["CodeMismatchException", "ExpiredCodeException"])
+async def test_wrong_code_keeps_the_session_locked(code: str) -> None:
+    answers = [auth_challenge(), auth_error(code)]
+    http = FakeHttp(cognito=lambda c: answers.pop(0))
+    session = make(http)
+    with pytest.raises(VeoliaChallenge) as err:
+        await session.token()
+    with pytest.raises(VeoliaAuthRefused) as wrong:
+        await session.answer_challenge(err.value, "000000")
+    assert wrong.value.code == code and not isinstance(wrong.value, VeoliaChallenge)
+    with pytest.raises(VeoliaAuthRefused):
+        await session.token()
+    assert len(http.cognito_calls) == 2

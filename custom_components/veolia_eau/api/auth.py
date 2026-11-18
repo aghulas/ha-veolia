@@ -5,9 +5,11 @@ Policy (CLAUDE.md, rule 1):
 - an access token that is still valid is reused;
 - otherwise the refresh token is tried once;
 - if Cognito refuses the refresh token, ONE full login with the password is made;
-- if Cognito refuses the password (or answers with a challenge), `VeoliaAuthRefused` is raised and
-  the session is locked: no further request is sent to Cognito until `set_password()` is called
-  by a reauth flow. A network error is not a refusal and does not lock anything.
+- if Cognito refuses the password, `VeoliaAuthRefused` is raised; if it answers with a challenge
+  (a code sent by e-mail or SMS), `VeoliaChallenge`, a refusal that a person can answer once with
+  `answer_challenge()`. Either way the session is locked: no further request is sent to
+  Cognito until `set_password()` is called by a reauth flow. A network error is not a refusal
+  and does not lock anything.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from typing import Any
 import aiohttp
 
 from .const import COGNITO_CLIENT_ID, COGNITO_URL, REQUEST_TIMEOUT_S, TOKEN_MARGIN_S
-from .errors import VeoliaApiError, VeoliaAuthRefused, VeoliaConnectionError
+from .errors import VeoliaApiError, VeoliaAuthRefused, VeoliaChallenge, VeoliaConnectionError
 
 # Cognito error types that mean "these credentials will not work": never retried.
 REFUSALS = frozenset(
@@ -30,8 +32,20 @@ REFUSALS = frozenset(
         "UserNotFoundException",
         "UserNotConfirmedException",
         "PasswordResetRequiredException",
+        "CodeMismatchException",
+        "ExpiredCodeException",
     }
 )
+
+
+# Name of the field that carries the code in RespondToAuthChallenge, per challenge type.
+CHALLENGE_ANSWER_KEYS = {
+    "EMAIL_OTP": "EMAIL_OTP_CODE",
+    "SMS_OTP": "SMS_OTP_CODE",
+    "SMS_MFA": "SMS_MFA_CODE",
+    "SOFTWARE_TOKEN_MFA": "SOFTWARE_TOKEN_MFA_CODE",
+    "CUSTOM_CHALLENGE": "ANSWER",
+}
 
 
 @dataclass(frozen=True)
@@ -127,12 +141,50 @@ class CognitoSession:
         if self._on_tokens is not None:
             self._on_tokens(tokens)
 
+    async def answer_challenge(self, challenge: VeoliaChallenge, code: str) -> str:
+        """Answer a second-factor challenge with the code the user received. One call.
+
+        A wrong or expired code raises `VeoliaAuthRefused`; the session stays locked either way
+        until a call succeeds or `set_password()` is called.
+        """
+        async with self._lock:
+            key = CHALLENGE_ANSWER_KEYS.get(challenge.code, "ANSWER")
+            data = await self._call(
+                "RespondToAuthChallenge",
+                {
+                    "ChallengeName": challenge.code,
+                    "ClientId": COGNITO_CLIENT_ID,
+                    "Session": challenge.session,
+                    "ChallengeResponses": {"USERNAME": challenge.username, key: code.strip()},
+                },
+            )
+            access = self._accept(self._result(data), None)
+            self._refused = None
+            return access
+
     async def _initiate(self, flow: str, parameters: dict[str, str]) -> dict[str, Any]:
-        """One InitiateAuth call. Never logs or raises the parameters."""
+        """One InitiateAuth call."""
         body = {"AuthFlow": flow, "ClientId": COGNITO_CLIENT_ID, "AuthParameters": parameters}
+        return self._result(await self._call("InitiateAuth", body))
+
+    def _result(self, data: dict[str, Any]) -> dict[str, Any]:
+        challenge = data.get("ChallengeName")
+        if challenge:  # needs a person: never retried
+            parameters = data.get("ChallengeParameters")
+            username = parameters.get("USERNAME") if isinstance(parameters, dict) else None
+            raise VeoliaChallenge(
+                str(challenge), str(data.get("Session") or ""), str(username or self._username)
+            )
+        result = data.get("AuthenticationResult")
+        if not isinstance(result, dict):
+            raise VeoliaApiError(200, "cognito", "no authentication result")
+        return result
+
+    async def _call(self, action: str, body: dict[str, Any]) -> dict[str, Any]:
+        """One Cognito call. Never logs or raises what it sends."""
         headers = {
             "Content-Type": "application/x-amz-json-1.1",
-            "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth",
+            "X-Amz-Target": f"AWSCognitoIdentityProviderService.{action}",
         }
         try:
             async with self._http.request(
@@ -155,10 +207,4 @@ class CognitoSession:
             if code in REFUSALS:
                 raise VeoliaAuthRefused(code)
             raise VeoliaApiError(status, "cognito", code)
-        challenge = data.get("ChallengeName")
-        if challenge:  # MFA, NEW_PASSWORD_REQUIRED…: needs the user, not a retry
-            raise VeoliaAuthRefused(str(challenge))
-        result = data.get("AuthenticationResult")
-        if not isinstance(result, dict):
-            raise VeoliaApiError(status, "cognito", "no authentication result")
-        return result
+        return data

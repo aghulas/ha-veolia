@@ -21,13 +21,21 @@
         "data": {
           "password": "Password"
         }
+      },
+      "code": {
+        "title": "Verification code",
+        "description": "Veolia sent a verification code to {username} (first login from a new place). Enter it here; it is valid for a few minutes.",
+        "data": {
+          "code": "Code"
+        }
       }
     },
     "error": {
       "invalid_auth": "Veolia refused these credentials.",
       "cannot_connect": "Veolia cannot be reached.",
       "unknown": "Unexpected answer from Veolia.",
-      "none_selected": "Select at least one subscription."
+      "none_selected": "Select at least one subscription.",
+      "invalid_code": "Veolia refused this code (wrong or expired)."
     },
     "abort": {
       "already_configured": "This account is already configured.",
@@ -80,11 +88,32 @@
       },
       "last_invoice_date": {
         "name": "Last invoice date"
+      },
+      "last_billed_volume": {
+        "name": "Last billed volume"
       }
     },
     "binary_sensor": {
       "possible_leak": {
         "name": "Possible leak"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh"
+      }
+    }
+  },
+  "selector": {
+    "weekday": {
+      "options": {
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday",
+        "sun": "Sunday"
       }
     }
   }

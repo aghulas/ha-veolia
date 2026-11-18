@@ -21,13 +21,21 @@
         "data": {
           "password": "Mot de passe"
         }
+      },
+      "code": {
+        "title": "Code de vérification",
+        "description": "Veolia a envoyé un code de vérification à {username} (première connexion depuis un nouvel endroit). Saisissez-le ici ; il est valable quelques minutes.",
+        "data": {
+          "code": "Code"
+        }
       }
     },
     "error": {
       "invalid_auth": "Veolia a refusé ces identifiants.",
       "cannot_connect": "Veolia est injoignable.",
       "unknown": "Réponse inattendue de Veolia.",
-      "none_selected": "Sélectionnez au moins un abonnement."
+      "none_selected": "Sélectionnez au moins un abonnement.",
+      "invalid_code": "Veolia a refusé ce code (faux ou expiré)."
     },
     "abort": {
       "already_configured": "Ce compte est déjà configuré.",
@@ -80,11 +88,32 @@
       },
       "last_invoice_date": {
         "name": "Date de la dernière facture"
+      },
+      "last_billed_volume": {
+        "name": "Dernier volume facturé"
       }
     },
     "binary_sensor": {
       "possible_leak": {
         "name": "Fuite possible"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Rafraîchir"
+      }
+    }
+  },
+  "selector": {
+    "weekday": {
+      "options": {
+        "mon": "Lundi",
+        "tue": "Mardi",
+        "wed": "Mercredi",
+        "thu": "Jeudi",
+        "fri": "Vendredi",
+        "sat": "Samedi",
+        "sun": "Dimanche"
       }
     }
   }

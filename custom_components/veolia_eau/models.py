@@ -196,3 +196,44 @@ def last_invoice(rows: Iterable[dict[str, Any]]) -> Invoice | None:
         and (day := _date(row.get("date_emission"))) is not None
     ]
     return max(invoices, key=lambda i: i.day, default=None)
+
+
+@dataclass(frozen=True)
+class BilledPeriod:
+    """A reading used for an invoice."""
+
+    start: date | None
+    end: date
+    m3: float | None
+    index_m3: float | None
+
+
+def last_billed_period(rows: Iterable[dict[str, Any]]) -> BilledPeriod | None:
+    """Most recent billing reading."""
+    periods = [
+        BilledPeriod(
+            start=_date(row.get("date_facturation_precedente")),
+            end=end,
+            m3=_field(row, "volume_facture_eau", "m3"),
+            index_m3=_number(row.get("index_facture")),
+        )
+        for row in rows
+        if (end := _date(row.get("date_facturation"))) is not None
+    ]
+    return max(periods, key=lambda p: p.end, default=None)
+
+
+def monthly_as_readings(
+    monthly: Iterable[MonthlyReading], since: date, before: date
+) -> list[DailyReading]:
+    """Monthly volumes as one reading on the 1st of each month, in litres.
+
+    Only whole months from `since`'s month on and strictly before `before`'s month: they fill the
+    history that precedes the daily data without overlapping it.
+    """
+    return [
+        DailyReading(date(m.year, m.month, 1), m.m3 * 1000.0, m.index_m3, m.reliability)
+        for m in monthly
+        if m.m3 is not None
+        and (since.year, since.month) <= (m.year, m.month) < (before.year, before.month)
+    ]

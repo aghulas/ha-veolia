@@ -36,6 +36,10 @@ class Backend:
         self.account: dict[str, Any] = account(int(SUB))
         self.account_pro: dict[str, Any] = account()
         self.start = "2026-08-15"
+        self.daily_start: str | None = None  # daily data may begin after the subscription
+        self.monthly_m3 = 100.0
+        self.daily_refused_before: str | None = None  # "YYYY-MM": older months answer 422
+        self.monthly_refused_before: int | None = None  # older years answer 422
         self.litres = lambda day: 60.0 if day.weekday() == 6 else 5000.0
         self.last_day = date(2026, 11, 17)
         self.habilitated = False
@@ -64,9 +68,11 @@ class Backend:
             )
         if path.endswith("/journalieres"):
             year, month = int(call.kwargs["params"]["annee"]), int(call.kwargs["params"]["mois"])
+            if self.daily_refused_before and f"{year}-{month:02d}" < self.daily_refused_before:
+                return FakeResponse(422, {"message": "synthetic"})
             day, rows = date(year, month, 1), []
             while day.month == month and day <= self.last_day:
-                if day.isoformat() >= self.start:
+                if day.isoformat() >= (self.daily_start or self.start):
                     rows.append(
                         {
                             "date_releve": day.isoformat(),
@@ -77,6 +83,40 @@ class Backend:
                     )
                 day += timedelta(days=1)
             return FakeResponse(200, rows)
+        if path.endswith("/mensuelles"):
+            year = int(call.kwargs["params"]["annee"])
+            if self.monthly_refused_before and year < self.monthly_refused_before:
+                return FakeResponse(422, {"message": "synthetic"})
+            rows = [
+                {
+                    "annee": year,
+                    "mois": m,
+                    "consommation": {"m3": self.monthly_m3},
+                    "fiabilite_conso": "M",
+                }
+                for m in range(1, 13)
+                if self.start[:7] <= f"{year}-{m:02d}" <= self.last_day.isoformat()[:7]
+            ]
+            return FakeResponse(200, rows)
+        if "/consommations/facturation/" in path:
+            return FakeResponse(
+                200,
+                [
+                    {
+                        "date_facturation_precedente": "2026-03-31",
+                        "date_facturation": "2026-06-30",
+                        "volume_facture_eau": {"m3": 250},
+                        "index_facture": 1100,
+                    },
+                    {
+                        "date_facturation_precedente": "2026-06-30",
+                        "date_facturation": "2026-09-30",
+                        "volume_facture_eau": {"m3": 131.5},
+                        "index_facture": 1231.5,
+                    },
+                    {"date_facturation": None},
+                ],
+            )
         if path.endswith("/factures"):
             return FakeResponse(
                 200,

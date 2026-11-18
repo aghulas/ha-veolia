@@ -90,6 +90,21 @@ SENSORS: tuple[VeoliaSensorDescription, ...] = (
         value=lambda d: d.invoice.amount if d.invoice else None,
     ),
     VeoliaSensorDescription(
+        key="last_billed_volume",
+        device_class=SensorDeviceClass.WATER,
+        native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
+        value=lambda d: d.billed.m3 if d.billed else None,
+        attributes=lambda d: (
+            {
+                "from": d.billed.start.isoformat() if d.billed.start else None,
+                "to": d.billed.end.isoformat(),
+                "index": d.billed.index_m3,
+            }
+            if d.billed
+            else {}
+        ),
+    ),
+    VeoliaSensorDescription(
         key="last_invoice_date",
         device_class=SensorDeviceClass.DATE,
         value=lambda d: d.invoice.day if d.invoice else None,

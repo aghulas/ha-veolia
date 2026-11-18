@@ -22,6 +22,18 @@ class VeoliaAuthRefused(VeoliaError):
         self.code = code
 
 
+class VeoliaChallenge(VeoliaAuthRefused):
+    """Cognito asks for a second factor (e.g. a code sent by e-mail on a first login from a new
+    place). Unattended it is a refusal like any other; a config flow can answer it with
+    `CognitoSession.answer_challenge()`. `session` is an opaque Cognito token: never log it.
+    """
+
+    def __init__(self, name: str, session: str, username: str) -> None:
+        super().__init__(name)
+        self.session = session
+        self.username = username
+
+
 class VeoliaConnectionError(VeoliaError):
     """Network failure or timeout: transient, says nothing about the credentials."""
 

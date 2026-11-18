@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import aiohttp
@@ -74,13 +75,13 @@ class VeoliaClient:
                 continue
             if status >= 300:
                 code = HABILITATION_ERROR if HABILITATION_ERROR in text else ""
-                raise VeoliaApiError(status, path, code)
+                raise VeoliaApiError(status, _anonymous(path), code)
             if not text.strip():
                 return None
             try:
                 return json.loads(text)
             except ValueError:
-                raise VeoliaApiError(status, path, "not json") from None
+                raise VeoliaApiError(status, _anonymous(path), "not json") from None
 
     # --- account -------------------------------------------------------------------------
 
@@ -134,6 +135,11 @@ class VeoliaClient:
     async def invoices(self, subscription: str) -> list[dict[str, Any]]:
         """Invoice list (metadata only; PDFs are not downloaded)."""
         return _rows(await self.get(f"/documents-archive/abonnement/{subscription}/factures"))
+
+
+def _anonymous(path: str) -> str:
+    """The path without the subscription number, for error messages and logs."""
+    return re.sub(r"\d+", "<id>", path)
 
 
 def _rows(data: Any) -> list[dict[str, Any]]:
