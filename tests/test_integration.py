@@ -14,7 +14,6 @@ from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
@@ -679,17 +678,43 @@ async def test_calendar_loaded_after_the_entry_is_read_once_started(
 ) -> None:
     holiday_leak(backend)
     hass.set_state(CoreState.starting)
-    config = entry(holiday_calendar=CALENDAR)
-    await setup(hass, config)
+    started = []  # the callback scheduled for "Home Assistant has started", awaited by the test
+    with patch(
+        "custom_components.veolia_eau.async_at_started",
+        side_effect=lambda hass, action: started.append(action) or (lambda: None),
+    ):
+        config = entry(holiday_calendar=CALENDAR)
+        await setup(hass, config)
+    assert len(started) == 1
     assert hass.states.get(LEAK).state == "off"
+    assert config.runtime_data.calendar_missed is True
     assert not [r for r in caplog.records if r.levelname == "WARNING" and "calendar" in r.message]
     await add_calendar(hass, HOLIDAYS)
     http.calls.clear()
     hass.set_state(CoreState.running)
-    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
-    await wait_for(hass, lambda: hass.states.get(LEAK).state == "on")
+    await started[0](hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(LEAK).state == "on"
+    assert config.runtime_data.calendar_missed is False
     assert http.calls == []  # nothing is asked from Veolia again
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"possible_leak_{SUB}") is not None
+
+
+async def test_started_callback_does_nothing_when_the_calendar_was_read(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    calendar = await add_calendar(hass, HOLIDAYS)
+    hass.set_state(CoreState.starting)
+    started = []
+    with patch(
+        "custom_components.veolia_eau.async_at_started",
+        side_effect=lambda hass, action: started.append(action) or (lambda: None),
+    ):
+        config = entry(holiday_calendar=CALENDAR)
+        await setup(hass, config)
+    hass.set_state(CoreState.running)
+    await started[0](hass)
+    assert len(calendar.queries) == 1  # read at set-up only
 
 
 # --- Leak Repairs issue -------------------------------------------------------------------
