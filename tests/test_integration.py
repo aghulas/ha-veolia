@@ -10,18 +10,28 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
+from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockModule,
+    MockPlatform,
+    async_fire_time_changed,
+    mock_integration,
+    mock_platform,
+)
 from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
 )
 
 from custom_components.veolia_eau.const import DOMAIN
+from custom_components.veolia_eau.coordinator import event_days
 from custom_components.veolia_eau.diagnostics import async_get_config_entry_diagnostics
 from custom_components.veolia_eau.models import DailyReading
 from custom_components.veolia_eau.statistics import build_rows, local_midnight, statistic_id
@@ -521,3 +531,258 @@ async def test_unload(hass: HomeAssistant, http: FakeHttp) -> None:
     await setup(hass, config)
     assert await hass.config_entries.async_unload(config.entry_id)
     assert config.state is ConfigEntryState.NOT_LOADED
+
+
+# --- Holiday calendar ---------------------------------------------------------------------
+
+CALENDAR = "calendar.holidays"
+LEAK = f"binary_sensor.veolia_{SUB}_possible_leak"
+# Monday 16 and Tuesday 17 November as one all-day event (its end is exclusive), and a timed
+# event on Thursday 12 that ends at midnight.
+HOLIDAYS = [
+    CalendarEvent(summary="synthetic", start=date(2026, 11, 16), end=date(2026, 11, 18)),
+    CalendarEvent(
+        summary="synthetic",
+        start=datetime(2026, 11, 12, 8, 0, tzinfo=PARIS),
+        end=datetime(2026, 11, 13, 0, 0, tzinfo=PARIS),
+    ),
+]
+HOLIDAY_DAYS = {date(2026, 11, 12), date(2026, 11, 16), date(2026, 11, 17)}
+
+
+class Holidays(CalendarEntity):
+    """A calendar entity with fixed events, served by the real `calendar.get_events` service."""
+
+    _attr_name = "Holidays"
+
+    def __init__(self, events: list[CalendarEvent]) -> None:
+        self.events = events
+        self.queries: list[tuple[datetime, datetime]] = []
+
+    @property
+    def event(self) -> CalendarEvent | None:
+        return None
+
+    async def async_get_events(
+        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
+    ) -> list[CalendarEvent]:
+        self.queries.append((start_date, end_date))
+        return self.events
+
+
+async def add_calendar(hass: HomeAssistant, events: list[CalendarEvent]) -> Holidays:
+    calendar = Holidays(events)
+
+    async def async_setup_platform(hass, config, async_add_entities, discovery_info=None) -> None:
+        async_add_entities([calendar])
+
+    mock_integration(hass, MockModule("test"))
+    mock_platform(hass, "test.calendar", MockPlatform(async_setup_platform=async_setup_platform))
+    assert await async_setup_component(hass, "calendar", {"calendar": {"platform": "test"}})
+    await hass.async_block_till_done()
+    assert hass.states.get(CALENDAR) is not None
+    return calendar
+
+
+def holiday_leak(backend: Backend) -> None:
+    """300 L on the holidays, a quiet Sunday in between: a leak only if the holidays count."""
+    backend.litres = lambda day: (
+        300.0 if day in HOLIDAY_DAYS else 60.0 if day.weekday() == 6 else 5000.0
+    )
+
+
+def test_event_days() -> None:
+    days = event_days(
+        [
+            {"start": "2026-11-16", "end": "2026-11-18"},  # all-day, two days
+            {"start": "2026-10-24T22:00:00+02:00", "end": "2026-10-26T09:00:00+01:00"},  # DST
+            {"start": "2026-11-12T08:00:00+01:00", "end": "2026-11-13T00:00:00+01:00"},
+            {"start": "2026-11-01T23:30:00+00:00", "end": "2026-11-01T23:45:00+00:00"},  # UTC
+            {"start": "2026-11-05T10:00:00+01:00", "end": "2026-11-05T10:00:00+01:00"},
+        ],
+        PARIS,
+    )
+    assert days == {
+        date(2026, 11, 16),
+        date(2026, 11, 17),
+        date(2026, 10, 24),
+        date(2026, 10, 25),
+        date(2026, 10, 26),
+        date(2026, 11, 12),
+        date(2026, 11, 2),  # 00:30 in Paris
+        date(2026, 11, 5),
+    }
+
+
+async def test_calendar_events_are_closed_days(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    calendar = await add_calendar(hass, HOLIDAYS)
+    holiday_leak(backend)
+    config = entry(holiday_calendar=CALENDAR)
+    await setup(hass, config)
+    baseline = dict(config.runtime_data.data[SUB].baseline)
+    assert {d for d in baseline if d.weekday() != 6} == HOLIDAY_DAYS
+    assert baseline[date(2026, 11, 15)] == 60.0  # the closed weekdays still count
+    assert hass.states.get(LEAK).state == "on"  # the last two closed days: 16 and 17 November
+    assert hass.states.get(f"sensor.veolia_{SUB}_closed_day_baseline").attributes["day"] == (
+        "2026-11-17"
+    )
+    # One query, over the refresh window, in the Home Assistant time zone.
+    assert calendar.queries == [
+        (datetime(2026, 10, 14, tzinfo=PARIS), datetime(2026, 11, 19, tzinfo=PARIS))
+    ]
+    assert config.runtime_data.calendar_missed is False
+
+
+async def test_without_a_calendar_only_the_weekdays_count(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    calendar = await add_calendar(hass, HOLIDAYS)  # exists, but is not configured
+    holiday_leak(backend)
+    config = entry()
+    await setup(hass, config)
+    assert {d.weekday() for d, _ in config.runtime_data.data[SUB].baseline} == {6}
+    assert hass.states.get(LEAK).state == "off"
+    assert calendar.queries == []
+
+
+@pytest.mark.parametrize("case", ["missing", "unavailable", "failing"])
+async def test_unreadable_calendar_falls_back_to_the_weekdays(
+    hass: HomeAssistant,
+    http: FakeHttp,
+    backend: Backend,
+    caplog: pytest.LogCaptureFixture,
+    case: str,
+) -> None:
+    holiday_leak(backend)
+    if case == "unavailable":
+        hass.states.async_set(CALENDAR, "unavailable")
+    elif case == "failing":
+        calendar = await add_calendar(hass, HOLIDAYS)
+        calendar.events = None  # type: ignore[assignment]  # the service call fails
+    config = entry(holiday_calendar=CALENDAR)
+    await setup(hass, config)
+    assert config.state is ConfigEntryState.LOADED
+    assert config.runtime_data.last_update_success is True
+    assert config.runtime_data.calendar_missed is True
+    assert {d.weekday() for d, _ in config.runtime_data.data[SUB].baseline} == {6}
+    assert hass.states.get(LEAK).state == "off"
+    warnings = [r for r in caplog.records if "holiday calendar" in r.getMessage()]
+    assert len(warnings) == 1 and warnings[0].levelname == "WARNING"
+    assert CALENDAR not in warnings[0].getMessage() and SUB not in warnings[0].getMessage()
+
+
+async def test_calendar_loaded_after_the_entry_is_read_once_started(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend, caplog: pytest.LogCaptureFixture
+) -> None:
+    holiday_leak(backend)
+    hass.set_state(CoreState.starting)
+    started = []  # the callback scheduled for "Home Assistant has started", awaited by the test
+    with patch(
+        "custom_components.veolia_eau.async_at_started",
+        side_effect=lambda hass, action: started.append(action) or (lambda: None),
+    ):
+        config = entry(holiday_calendar=CALENDAR)
+        await setup(hass, config)
+    assert len(started) == 1
+    assert hass.states.get(LEAK).state == "off"
+    assert config.runtime_data.calendar_missed is True
+    assert not [r for r in caplog.records if r.levelname == "WARNING" and "calendar" in r.message]
+    await add_calendar(hass, HOLIDAYS)
+    http.calls.clear()
+    hass.set_state(CoreState.running)
+    await started[0](hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(LEAK).state == "on"
+    assert config.runtime_data.calendar_missed is False
+    assert http.calls == []  # nothing is asked from Veolia again
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"possible_leak_{SUB}") is not None
+
+
+async def test_started_callback_does_nothing_when_the_calendar_was_read(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    calendar = await add_calendar(hass, HOLIDAYS)
+    hass.set_state(CoreState.starting)
+    started = []
+    with patch(
+        "custom_components.veolia_eau.async_at_started",
+        side_effect=lambda hass, action: started.append(action) or (lambda: None),
+    ):
+        config = entry(holiday_calendar=CALENDAR)
+        await setup(hass, config)
+    hass.set_state(CoreState.running)
+    await started[0](hass)
+    assert len(calendar.queries) == 1  # read at set-up only
+
+
+# --- Leak Repairs issue -------------------------------------------------------------------
+
+
+def leaking(backend: Backend, sunday_8: float, sunday_15: float) -> None:
+    volumes = {date(2026, 11, 8): sunday_8, date(2026, 11, 15): sunday_15}
+    backend.litres = lambda day: volumes.get(day, 60.0 if day.weekday() == 6 else 5000.0)
+
+
+async def test_leak_issue_is_raised_once_then_deleted(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    issues = ir.async_get(hass)
+    leaking(backend, 185.0, 327.5)
+    config = entry()
+    await setup(hass, config)
+    issue = issues.async_get_issue(DOMAIN, f"possible_leak_{SUB}")
+    assert issue is not None and issue.is_fixable is False
+    assert issue.severity is ir.IssueSeverity.WARNING
+    assert issue.translation_key == "possible_leak"
+    assert issue.translation_placeholders == {
+        "subscription": SUB,
+        "threshold": "150",
+        "days": "2",
+        "volumes": "2026-11-08: 185 L, 2026-11-15: 327.5 L",
+    }
+    leaking(backend, 185.0, 400.0)  # still leaking: the issue is kept as it is
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    assert issues.async_get_issue(DOMAIN, f"possible_leak_{SUB}") is issue
+    leaking(backend, 185.0, 80.0)
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    assert hass.states.get(LEAK).state == "off"
+    assert issues.async_get_issue(DOMAIN, f"possible_leak_{SUB}") is None
+    leaking(backend, 185.0, 327.5)  # a new leak is a new issue
+    await config.runtime_data.async_refresh()
+    await settle(hass)
+    assert issues.async_get_issue(DOMAIN, f"possible_leak_{SUB}") is not None
+    assert await hass.config_entries.async_unload(config.entry_id)
+    assert issues.async_get_issue(DOMAIN, f"possible_leak_{SUB}") is None
+
+
+async def test_leak_issue_survives_a_failed_refresh(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    leaking(backend, 185.0, 327.5)
+    config = entry()
+    await setup(hass, config)
+    http.backend = lambda c: FakeResponse(500)
+    await config.runtime_data.async_refresh()
+    assert config.runtime_data.last_update_success is False
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"possible_leak_{SUB}") is not None
+
+
+async def test_leak_issue_can_be_turned_off(
+    hass: HomeAssistant, http: FakeHttp, backend: Backend
+) -> None:
+    leaking(backend, 185.0, 327.5)
+    await setup(hass, entry(leak_repair_issue=False))
+    assert hass.states.get(LEAK).state == "on"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"possible_leak_{SUB}") is None
+
+
+async def test_diagnostics_do_not_name_the_calendar(hass: HomeAssistant, http: FakeHttp) -> None:
+    config = entry(holiday_calendar=CALENDAR)
+    await setup(hass, config)
+    text = str(await async_get_config_entry_diagnostics(hass, config))
+    assert CALENDAR not in text and "'holiday_calendar': 'set'" in text
+    assert "'holiday_calendar_missed': True" in text
