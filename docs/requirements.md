@@ -21,7 +21,7 @@
 |---|---|---|
 | Daily volume (L) | `consommations/<id>/journalieres` (per month) | external statistic `<domain>:<sub>_water` (sum, L or m³), backfilled |
 | Monthly volume (m³) | `consommations/<id>/mensuelles` (per year) | used for backfill before daily data exists |
-| Hourly volume (L) | `consommations/<id>/horaires` (per day) | optional statistic; only if the account has the hourly step enabled (often partial) |
+| Hourly volume (L) | `consommations/<id>/horaires` (per day) | opt-in external statistic `<domain>:<sub>_water_hourly` (sum, L), the hours Veolia publishes |
 | Billing readings | `consommations/facturation/<id>` | sensor "last billed period" |
 | Last invoice amount/date, amount due | `documents-archive/abonnement/<id>/factures`, `abonnements/<id>/facturation` (`solde`) | sensors |
 | Meter index, last reading date, reading mode | `abonnements/<id>/facturation` | diagnostic sensors |
@@ -32,6 +32,16 @@ Decisions for v0.1 (2026-11-18): the subscription number is accepted in device n
 the statistic id (an exception to "no subscription number", agreed with the user, so that several
 subscriptions stay apart); the hourly statistic is dropped, since it needs the hourly step enabled,
 which is a write on the Veolia account.
+
+Decision of 2026-11-19 (reverses the last point): **the hourly statistic is added, opt-in, default
+off**. One read-only look at a real account without the hourly-step consent (approved by the
+account owner) showed that `/horaires` still answers, every day, with the same three night hours
+(02:00–05:00 local time), published with the daily data (D+1). That is the minimum night flow, a
+useful leak signal on every night, not only on closed days. The integration imports whatever hours
+Veolia publishes and still never asks for, offers or activates the consent; an account owner who
+turns it on in Veolia's web app gets the full curve with no change here. Bounds: hourly data is
+fetched during the existing daily fetch only, one GET per day, the last 3 days (7 the first time).
+Hours Veolia does not publish get no row (unknown, not zero).
 
 ## Behaviour
 

@@ -68,6 +68,27 @@ hourly profile for this source.
 You can also show it with a **Statistics graph** card (statistic `veolia_eau:<subscription>_water`,
 period *day*, stat type *change*).
 
+### Hourly volumes (optional)
+
+Turn on **Import the hourly volumes** in the options to get a second statistic,
+`veolia_eau:<subscription>_water_hourly`, in litres, one value per hour Veolia publishes, at the
+real start of that hour.
+
+- **Without hourly reading turned on in your Veolia customer area, Veolia publishes only three
+  night hours a day (02:00–05:00).** That is the night flow: on a building that is empty at night,
+  a few litres per hour that never drop to zero point to a running flush or a leak, and you see it
+  every night, not only on closed days. Show it with a Statistics graph card (period *hour*, stat
+  type *change*).
+- Turning hourly reading on is a change to your Veolia account (a consent). This integration never
+  does it and never will; if you do it yourself on eau.veolia.fr, the full hourly curve is imported
+  with nothing to change here.
+- Hours Veolia does not publish have no value (not zero). Like the daily data, the hours of a day
+  arrive the next morning.
+- Cost: at the daily fetch, one request per day for the last 3 days (7 the first time). No other
+  polling.
+- Do not add it to the Energy dashboard next to the daily statistic: it would count the same water
+  twice (and without the consent it covers three hours a day only).
+
 ## Entities
 
 One device per subscription, with:
@@ -109,6 +130,7 @@ Configure):
 | Raise a Repairs issue | on | Turn off to keep only the binary sensor |
 | Hour of the daily fetch | 10 | Veolia publishes the previous day in the morning |
 | History to import at first start | 36 months | Backfill depth |
+| Import the hourly volumes | off | Hourly statistic (see *Hourly volumes* above) |
 
 Pick a threshold above the normal baseline of your building (look at the *closed-day baseline*
 sensor's history over a few weeks): fridges, a boiler filling up or a cleaner on a Sunday all use
@@ -145,8 +167,8 @@ unavailable, one retry is made 30 minutes after a start-up, then the next daily 
 - The password and the refresh token are stored in Home Assistant's configuration entry (like any
   integration that logs in) and never logged.
 - **Diagnostics** contain only the options (the holiday calendar as "set", not its name), counts,
-  dates and flags (reading mode, last day published, number of closed days, possible leak, whether
-  the login was refused). No e-mail, password, token, subscription, meter or delivery-point number,
+  dates and flags (reading mode, last day published, number of closed days, possible leak, number
+  of hours published for the last day when the hourly option is on, whether the login was refused). No e-mail, password, token, subscription, meter or delivery-point number,
   name, address or bank detail.
 - The subscription number appears in device names, entity ids and the statistic id, so that several
   subscriptions stay apart.

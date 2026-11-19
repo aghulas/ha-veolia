@@ -49,6 +49,13 @@ Row fields: daily — `date_releve`, `consommation.litre`, `index.m3`, `fiabilit
 E estimated, C corrected, R read); monthly — `annee`, `mois`, `consommation.m3`, `index.m3`,
 `fiabilite_conso`; hourly — `heure_debut_releve`, `heure_fin_releve`, `consommation.litre`.
 
+Hourly rows (`/horaires`, observed 2026-11-19 on a business account without the hourly-step
+consent, one read-only call over 7 days): exactly **three rows per day, every day, 02:00–03:00,
+03:00–04:00 and 04:00–05:00**, timestamps without offset (`YYYY-MM-DDTHH:MM:SS`, French local
+time), integer litres; the previous day was already there the next morning, like the daily data.
+No GET is known that tells whether the consent is given: count the hours instead (the diagnostics
+give the number of hours of the last day fetched).
+
 Do **not** use `solde_facture_ttc` from documents (unreliable: equals the amount even for old paid
 invoices); the amount due is `solde` from `/facturation`.
 

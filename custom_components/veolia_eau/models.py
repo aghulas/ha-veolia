@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 # fiabilite_index / fiabilite_conso
@@ -83,6 +83,34 @@ def parse_monthly(rows: Iterable[dict[str, Any]]) -> list[MonthlyReading]:
             reliability=RELIABILITY.get(code, code) if isinstance(code, str) else None,
         )
     return [by_month[key] for key in sorted(by_month)]
+
+
+@dataclass(frozen=True)
+class HourlyReading:
+    """One hour of consumption. `start` is Veolia's local time, naive (no offset)."""
+
+    start: datetime
+    litres: float
+
+
+def parse_hourly(rows: Iterable[dict[str, Any]]) -> list[HourlyReading]:
+    """Hourly rows → readings sorted by start, one per hour (the last row of an hour wins).
+
+    Rows without a valid `heure_debut_releve` or without a volume are dropped: an hour Veolia
+    does not publish is unknown, not zero.
+    """
+    by_hour: dict[datetime, HourlyReading] = {}
+    for row in rows:
+        try:
+            start = datetime.fromisoformat(str(row.get("heure_debut_releve")))
+        except ValueError:
+            continue
+        litres = _field(row, "consommation", "litre")
+        if litres is None:
+            continue
+        start = start.replace(minute=0, second=0, microsecond=0, tzinfo=None)
+        by_hour[start] = HourlyReading(start=start, litres=litres)
+    return [by_hour[hour] for hour in sorted(by_hour)]
 
 
 def months_between(start: date, end: date) -> list[tuple[int, int]]:

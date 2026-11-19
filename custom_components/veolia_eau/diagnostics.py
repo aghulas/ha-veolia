@@ -30,6 +30,7 @@ async def async_get_config_entry_diagnostics(
                 "closed_days_in_window": len(data.baseline),
                 "possible_leak": data.leak,
                 "has_invoice": data.invoice is not None,
+                "hourly_hours_last_day": data.hourly_hours,
             }
         )
     options = dict(entry.options)
