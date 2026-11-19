@@ -9,7 +9,7 @@ Unofficial, not affiliated with Veolia. This is a separate integration (domain `
 community integration [Jezza34000/homeassistant_veolia](https://github.com/Jezza34000/homeassistant_veolia)
 (MIT), whose work on the eau.veolia.fr API it builds on; `docs/decision.md` says why.
 
-**Status: v0.1.** Running on a real Home Assistant (2026.11) with a business account since
+**Status: v0.2** (v0.2 adds optional hourly volumes). Running on a real Home Assistant (2026.11) with a business account since
 2026-11-18: two years of daily volumes imported, identical day for day to an independent reading of
 the same account. Tested with Home Assistant 2025.1 and 2026.10.
 
