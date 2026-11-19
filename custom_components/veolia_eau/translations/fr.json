@@ -54,11 +54,13 @@
           "holiday_calendar": "Calendrier des congés (facultatif)",
           "leak_threshold_l": "Seuil de fuite un jour de fermeture (L)",
           "leak_consecutive_days": "Jours de fermeture consécutifs au-dessus du seuil",
-          "leak_repair_issue": "Créer une alerte dans Réparations quand une fuite est possible"
+          "leak_repair_issue": "Créer une alerte dans Réparations quand une fuite est possible",
+          "hourly_statistic": "Importer les volumes horaires (statistique)"
         },
         "description": "Les jours de fermeture sont les jours où le bâtiment est vide : les jours de la semaine ci-dessous, plus chaque jour couvert par un événement du calendrier des congés, s'il est renseigné.",
         "data_description": {
-          "holiday_calendar": "Chaque jour couvert par un événement de ce calendrier compte comme un jour de fermeture. Utilisez des événements sur la journée entière."
+          "holiday_calendar": "Chaque jour couvert par un événement de ce calendrier compte comme un jour de fermeture. Utilisez des événements sur la journée entière.",
+          "hourly_statistic": "Ajoute la statistique veolia_eau:…_water_hourly avec chaque heure publiée par Veolia. Tant que le relevé horaire n'est pas activé dans votre espace client Veolia, Veolia ne publie que quelques heures de nuit (2 h – 5 h), ce qui suffit à surveiller le débit nocturne. Cette intégration ne l'active jamais."
         }
       }
     }

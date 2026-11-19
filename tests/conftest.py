@@ -50,6 +50,10 @@ class Backend:
         self.litres = lambda day: 60.0 if day.weekday() == 6 else 5000.0
         self.last_day = date(2026, 11, 17)
         self.habilitated = False
+        # Hourly volumes: without the hourly-step consent Veolia publishes a few night hours.
+        self.hours = [2, 3, 4]
+        self.hourly_litres = lambda day, hour: 10.0 + hour
+        self.hourly_refused_before: str | None = None  # "YYYY-MM-DD": older days answer 422
 
     def __call__(self, call: Call) -> FakeResponse:
         path = call.path
@@ -91,6 +95,23 @@ class Backend:
                     )
                 day += timedelta(days=1)
             return FakeResponse(200, rows)
+        if path.endswith("/horaires"):
+            day = date.fromisoformat(call.kwargs["params"]["jour"])
+            if self.hourly_refused_before and day.isoformat() < self.hourly_refused_before:
+                return FakeResponse(422, {"message": "synthetic"})
+            if day > self.last_day:
+                return FakeResponse(200, [])
+            return FakeResponse(
+                200,
+                [
+                    {
+                        "heure_debut_releve": f"{day.isoformat()}T{hour:02d}:00:00",
+                        "heure_fin_releve": f"{day.isoformat()}T{hour + 1:02d}:00:00",
+                        "consommation": {"litre": self.hourly_litres(day, hour)},
+                    }
+                    for hour in self.hours
+                ],
+            )
         if path.endswith("/mensuelles"):
             year = int(call.kwargs["params"]["annee"])
             if self.monthly_refused_before and year < self.monthly_refused_before:

@@ -40,6 +40,7 @@ from .const import (
     CONF_CLOSED_WEEKDAYS,
     CONF_FETCH_HOUR,
     CONF_HOLIDAY_CALENDAR,
+    CONF_HOURLY,
     CONF_LEAK_DAYS,
     CONF_LEAK_ISSUE,
     CONF_LEAK_THRESHOLD,
@@ -48,6 +49,7 @@ from .const import (
     DEFAULT_BACKFILL_MONTHS,
     DEFAULT_CLOSED_WEEKDAYS,
     DEFAULT_FETCH_HOUR,
+    DEFAULT_HOURLY,
     DEFAULT_LEAK_ISSUE,
     DOMAIN,
     WEEKDAYS,
@@ -226,7 +228,7 @@ class VeoliaConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class VeoliaOptionsFlow(OptionsFlow):
-    """Fetch hour, backfill depth, closed days (weekdays, calendar) and leak detection."""
+    """Fetch hour, backfill depth, closed days (weekdays, calendar), leak detection, hourly."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Single form."""
@@ -261,6 +263,7 @@ class VeoliaOptionsFlow(OptionsFlow):
                 vol.Required(
                     CONF_LEAK_ISSUE, default=get(CONF_LEAK_ISSUE, DEFAULT_LEAK_ISSUE)
                 ): bool,
+                vol.Required(CONF_HOURLY, default=get(CONF_HOURLY, DEFAULT_HOURLY)): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

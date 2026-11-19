@@ -22,14 +22,18 @@ from .const import (
     CONF_BACKFILL_MONTHS,
     CONF_CLOSED_WEEKDAYS,
     CONF_HOLIDAY_CALENDAR,
+    CONF_HOURLY,
     CONF_LEAK_DAYS,
     CONF_LEAK_ISSUE,
     CONF_LEAK_THRESHOLD,
     CONF_SUBSCRIPTIONS,
     DEFAULT_BACKFILL_MONTHS,
     DEFAULT_CLOSED_WEEKDAYS,
+    DEFAULT_HOURLY,
     DEFAULT_LEAK_ISSUE,
     DOMAIN,
+    HOURLY_BACKFILL_DAYS,
+    HOURLY_REFRESH_DAYS,
     ISSUE_AUTH_REFUSED,
     ISSUE_POSSIBLE_LEAK,
     LEAK_ISSUE_VOLUMES,
@@ -47,10 +51,11 @@ from .models import (
     monthly_as_readings,
     months_between,
     parse_daily,
+    parse_hourly,
     parse_monthly,
     parse_subscription_info,
 )
-from .statistics import async_has_statistics, async_import_daily
+from .statistics import async_has_statistics, async_import_daily, async_import_hourly
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +73,8 @@ class SubscriptionData:
     leak: bool
     invoice: Invoice | None
     billed: BilledPeriod | None
+    # Hours Veolia published for the most recent day fetched; None when the option is off.
+    hourly_hours: int | None = None
 
 
 def leak_issue_id(sub: str) -> str:
@@ -292,6 +299,8 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
             older = monthly_as_readings(parse_monthly(monthly), since, first_daily)
         await async_import_daily(self.hass, sub, f"Veolia {sub}", older, readings)
 
+        hourly_hours = await self._refresh_hourly(sub, info) if self._hourly else None
+
         self._readings[sub] = readings
         measured = [r for r in readings if r.litres is not None]
         return SubscriptionData(
@@ -301,4 +310,38 @@ class VeoliaCoordinator(DataUpdateCoordinator[dict[str, SubscriptionData]]):
             leak=False,
             invoice=last_invoice(await self.client.invoices(sub)),
             billed=last_billed_period(await self.client.billing_readings(sub)),
+            hourly_hours=hourly_hours,
         )
+
+    @property
+    def _hourly(self) -> bool:
+        return bool(self._option(CONF_HOURLY, DEFAULT_HOURLY))
+
+    async def _refresh_hourly(self, sub: str, info: SubscriptionInfo) -> int:
+        """Import the hourly volumes of the last few days; returns the hours of the newest day.
+
+        One GET per day, a bounded number of days, newest first. Without the hourly-step consent
+        (which this integration never gives) Veolia publishes only a few night hours: that is
+        imported as it is. A day Veolia refuses ends the walk; the daily data is unaffected.
+        """
+        first_run = not await async_has_statistics(self.hass, sub, hourly=True)
+        count = HOURLY_BACKFILL_DAYS if first_run else HOURLY_REFRESH_DAYS
+        yesterday = dt_util.now().date() - timedelta(days=1)
+        rows: list[dict[str, Any]] = []
+        newest: int | None = None
+        for back in range(count):
+            day = yesterday - timedelta(days=back)
+            if day < info.start:
+                break
+            try:
+                found = await self.client.hourly(
+                    sub, info.pds, info.start.isoformat(), day.isoformat()
+                )
+            except VeoliaApiError as err:
+                _LOGGER.debug("Hourly volumes stop before %s (HTTP %s)", day, err.status)
+                break
+            if newest is None:
+                newest = len(parse_hourly(found))
+            rows += found
+        await async_import_hourly(self.hass, sub, f"Veolia {sub} hourly", parse_hourly(rows))
+        return newest or 0

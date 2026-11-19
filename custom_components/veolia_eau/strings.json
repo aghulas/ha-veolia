@@ -54,11 +54,13 @@
           "holiday_calendar": "Holiday calendar (optional)",
           "leak_threshold_l": "Leak threshold on a closed day (L)",
           "leak_consecutive_days": "Closed days in a row above the threshold",
-          "leak_repair_issue": "Raise a Repairs issue when a leak is possible"
+          "leak_repair_issue": "Raise a Repairs issue when a leak is possible",
+          "hourly_statistic": "Import the hourly volumes (statistic)"
         },
         "description": "Closed days are the days when the building is empty: the weekdays below, plus every day covered by an event of the holiday calendar, if one is chosen.",
         "data_description": {
-          "holiday_calendar": "Every day covered by an event of this calendar counts as a closed day. Use all-day events."
+          "holiday_calendar": "Every day covered by an event of this calendar counts as a closed day. Use all-day events.",
+          "hourly_statistic": "Adds the statistic veolia_eau:…_water_hourly with every hour Veolia publishes. Unless hourly reading has been turned on in your Veolia customer area, Veolia publishes only a few night hours (02:00–05:00), which is enough to watch the night flow. This integration never turns it on."
         }
       }
     }

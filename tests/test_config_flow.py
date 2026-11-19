@@ -121,6 +121,7 @@ async def test_options(hass: HomeAssistant) -> None:
         "leak_threshold_l": 200.0,
         "leak_consecutive_days": 3,
         "leak_repair_issue": False,
+        "hourly_statistic": True,
     }
     done = await hass.config_entries.options.async_configure(result["flow_id"], options)
     assert done["type"] is FlowResultType.CREATE_ENTRY and entry.options == options
@@ -136,6 +137,7 @@ async def test_holiday_calendar_option_can_be_set_and_emptied(hass: HomeAssistan
     assert done["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["holiday_calendar"] == "calendar.holidays"
     assert entry.options["leak_repair_issue"] is True  # on by default
+    assert entry.options["hourly_statistic"] is False  # off by default
     assert entry.options["closed_weekdays"] == ["sun"]
     result = await hass.config_entries.options.async_init(entry.entry_id)
     suggested = {
