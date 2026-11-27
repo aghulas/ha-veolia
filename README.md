@@ -9,9 +9,12 @@ Unofficial, not affiliated with Veolia. This is a separate integration (domain `
 community integration [Jezza34000/homeassistant_veolia](https://github.com/Jezza34000/homeassistant_veolia)
 (MIT), whose work on the eau.veolia.fr API it builds on; `docs/decision.md` says why.
 
-**Status: v0.2** (v0.2 adds optional hourly volumes). Running on a real Home Assistant (2026.11) with a business account since
-2026-11-18: two years of daily volumes imported, identical day for day to an independent reading of
-the same account. Tested with Home Assistant 2025.1 and 2026.10.
+**Status: v0.2** (v0.2 adds optional hourly volumes; see the [changelog](CHANGELOG.md)). Running on
+a real Home Assistant (2026.11) with a business account since 2026-11-18: two years of daily volumes
+imported, identical day for day to an independent reading of the same account. Tested with Home
+Assistant 2025.1 and 2026.10; **2025.1 is the oldest supported version**.
+
+The icon is original artwork (a water drop over daily bars), not Veolia's logo.
 
 ## Installation
 
@@ -187,6 +190,8 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 *FR* — Consommation d'eau Veolia (compteur télérelevé, eau.veolia.fr) dans Home Assistant, y compris
 pour les comptes professionnels, avec détection de fuite par le talon des jours de fermeture
-(jours de la semaine choisis et calendrier des congés). Lecture seule. Installation par HACS
-(dépôt personnalisé) ou en copiant `custom_components/veolia_eau`, puis configuration depuis
-Paramètres → Appareils et services ; l'interface est traduite en français.
+(jours de la semaine choisis et calendrier des congés). Lecture seule. Intégration non officielle, sans lien avec Veolia.
+Installation par le Marketplace de Home Assistant (2026.11 et suivants) ou par HACS (dépôt
+personnalisé), ou en copiant `custom_components/veolia_eau`, puis configuration depuis
+Paramètres → Appareils et services ; l'interface est traduite en français. Home Assistant 2025.1
+au minimum.
