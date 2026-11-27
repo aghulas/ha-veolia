@@ -1,5 +1,6 @@
 name: Validate
 on:
+  workflow_dispatch:
   push:
   pull_request:
   schedule:
@@ -21,6 +22,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # "brands" requires assets in home-assistant/brands (separate PR, to be done before
-          # Marketplace inclusion). Ignored until that PR is merged.
-          ignore: brands
